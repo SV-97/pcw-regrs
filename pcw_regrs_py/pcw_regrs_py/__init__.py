@@ -1,0 +1,159 @@
+from . import pcw_regrs_py as _rs
+
+from dataclasses import dataclass
+from enum import Enum, auto
+import scipy.optimize as opt
+from typing import Callable, Iterable, List, NamedTuple, Optional
+# import pcw_regrs_py as pr
+import numpy as np
+import numpy.typing as npt
+from numbers import Integral, Real
+from bisect import bisect
+
+
+def continuity_opt_jumps(polys: List[np.polynomial.Polynomial], jump_idxs, sample_times) -> np.ndarray:
+    """Calculate the optimal jump positions to make the resulting model 'as continuous as possible'."""
+    boundaries = np.vstack((sample_times[:-1], sample_times[1:])).T
+    jumps = []
+    for left_poly, right_poly, jump_idx in zip(polys[:-1], polys[1:], jump_idxs):
+        interval = boundaries[jump_idx]
+        if left_poly.degree() == 0 and right_poly.degree() == 0:
+            jumps.append(np.mean(interval))
+        else:
+            # compute root of `|left_poly(x) - right_poly(x)|²` over the `interval` containing the jump
+            p = (left_poly - right_poly)**2
+            jumps.append(opt.minimize_scalar(
+                p, bounds=interval, method="bounded").x)
+    return jumps
+
+
+def model_params_to_poly(ts: np.ndarray, ys: np.ndarray, model_params: _rs.PolyModelSpec) -> np.polynomial.Polynomial:
+    """Turn the basic model parameters for a segment of data into a numpy polynomial."""
+    deg = model_params.degrees_of_freedom - 1
+    if deg == 0:
+        return np.polynomial.Polynomial((np.mean(ys[model_params.start_idx: model_params.stop_idx + 1]), ), window=np.array([-1., 1.]), domain=np.array([-1., 1.]))
+    else:
+        return np.polynomial.Polynomial.fit(
+            ts[model_params.start_idx: model_params.stop_idx + 1],
+            ys[model_params.start_idx: model_params.stop_idx + 1],
+            deg=deg, domain=np.array([-1., 1.]))
+
+
+class TimeSeriesSample(NamedTuple):
+    sample_times: npt.NDArray[np.float64]
+    values: npt.NDArray[np.float64]
+
+    def __len__(self):
+        return len(self.values)
+
+
+class JumpLocator(Enum):
+    MIDPOINT = auto()
+    CONTINUITY_OPTIMIZED = auto()
+
+
+@dataclass(frozen=True)
+class PcwFn():
+    """A piecewise function"""
+    funcs: Iterable[Callable]
+    jumps: Iterable[Real]  # must be sorted ascendingly
+
+    def __call__(self, x: npt.ArrayLike) -> npt.ArrayLike:
+        """Evaluate the function at some point (or an array of points)"""
+        if isinstance(x, np.ndarray):
+            xs = x.flatten()
+            jumps = self.jumps
+            funcs = self.funcs
+            return np.array([funcs[bisect(jumps, x)](x) for x in xs]).reshape(x.shape)
+        else:
+            return self.funcs[bisect(self.jumps, x)](x)
+
+
+@dataclass(frozen=True)
+class PcwPolynomial(PcwFn):
+    funcs: List[np.polynomial.Polynomial]
+    jumps: npt.NDArray[np.float64]
+    _cut_idxs: npt.NDArray[int] = None
+
+    @classmethod
+    def from_data_and_model(
+        Self,
+        timeseries: TimeSeriesSample,
+        model: _rs.ScoredPolyModel,
+        jump_locator=JumpLocator.CONTINUITY_OPTIMIZED
+    ) -> "PcwPolynomial":
+        funcs = [model_params_to_poly(
+            timeseries.sample_times, timeseries.values, seg_model) for seg_model in model.model_params]
+        match jump_locator:
+            case JumpLocator.CONTINUITY_OPTIMIZED:
+                jumps = continuity_opt_jumps(
+                    funcs, model.cut_idxs, timeseries.sample_times)
+            case JumpLocator.MIDPOINT:
+                ts = timeseries.sample_times
+                jumps = np.mean(np.vstack((ts[:-1], ts[1:])).T, axis=1)
+        return Self(funcs, jumps, model.cut_idxs)
+
+    @classmethod
+    def fit_n_best(
+        Self,
+        timeseries: TimeSeriesSample,
+        jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
+        max_segment_degree: Optional[Integral] = 15,
+        max_total_dof: Optional[Integral] = None,
+        n_best: Integral = 1,
+    ) -> List["PcwPolynomial"]:
+        """Fit the n models with the n lowest CV scores."""
+        models = _rs.fit_pcw_poly(
+            timeseries.sample_times,
+            timeseries.values,
+            max_total_dof,
+            max_segment_degree + 1 if max_segment_degree is not None else None,
+        ).n_cv_minimizers(n_best)
+        return [Self.from_data_and_model(timeseries, model, jump_locator) for model in models]
+
+    @classmethod
+    def fit_ose(
+        Self,
+        timeseries: TimeSeriesSample,
+        jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
+        max_segment_degree: Optional[Integral] = None,
+        max_total_dof: Optional[Integral] = None,
+    ) -> "PcwPolynomial":
+        """Fit the best model with respect to the one standard error rule."""
+        model = _rs.fit_pcw_poly(
+            timeseries.sample_times,
+            timeseries.values,
+            max_total_dof,
+            max_segment_degree + 1 if max_segment_degree is not None else None,
+        ).ose_best()
+        return Self.from_data_and_model(timeseries, model, jump_locator)
+
+    def __str__(self):
+        body = (r") \\" "\n    ").join(f"{str(poly)} & x \\in [{poly.domain[0]}, {poly.domain[1]}"
+                                       for poly in self.funcs
+                                       )
+        return r"\begin{cases}" f"\n{body}]\n" r"\end{cases}"
+
+    def __format__(self, format_spec):
+        body = (r") \\" "\n    ").join(f"{poly:{format_spec}} & x \\in [{poly.domain[0]}, {poly.domain[1]}"
+                                       for poly in self.funcs
+                                       )
+        return r"\begin{cases}" f"\n{body}]\n" r"\end{cases}"
+
+
+if __name__ == "__main__":
+    # a simple example
+    import numpy as np
+    times = np.linspace(0, 10)
+    values = np.hstack([5*times[:10]**2, times[10:30] - 10, (-times[30:] **
+                       4 + times[30:]**3 + 10)/np.amax(-times[30:]**4 + times[30:]**3 + 10)])
+    p1 = PcwPolynomial.fit_ose(TimeSeriesSample(times, values))
+    p2 = PcwPolynomial.fit_n_best(TimeSeriesSample(times, values))[0]
+
+    import matplotlib.pyplot as plt
+    ts = np.linspace(0, 10, 3000)
+    plt.scatter(times, values)
+    plt.scatter(ts, p2(ts), label="Best", marker=".", alpha=0.3)
+    plt.scatter(ts, p1(ts), label="OSE", marker=".")
+    plt.legend()
+    plt.show()

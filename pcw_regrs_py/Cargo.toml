@@ -1,0 +1,33 @@
+[package]
+name = "pcw_regrs_py"
+version = "1.1.2"
+edition = "2021"
+publish = false       # prevent accidental publishing
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "pcw_regrs_py"
+crate-type = ["cdylib"]
+
+[profile.release]
+# debug = 1
+# lto = true
+# codegen-units = 1
+
+[dependencies]
+pyo3 = { version = "0.17.3", features = ["extension-module", "serde"] }
+numpy = "0.17.1"
+ordered-float = { version = "3.4.0", features = ["std", "serde"] }
+pcw_regrs = { version = "1.2.2", path = "../pcw_regrs", features = ["serde"] }
+rayon = "1.6.1"
+serde = { version = "1.0.152", features = ["derive"] }
+serde_json = "1.0.91"
+derive-new = "0.5.9"
+# num-traits = "0.2.15"
+pcw_fn = { version = "0.2.1", features = ["serde"] }
+
+[dev-dependencies]
+approx = "0.5.1"
+
+[features]
+show_times = []
