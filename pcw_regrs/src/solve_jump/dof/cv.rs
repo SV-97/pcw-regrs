@@ -2,7 +2,10 @@
 use super::OptimalJumpData;
 use crate::affine_min::{pointwise_minimum_of_affines, AffineFunction};
 use crate::annotate::Annotated;
-use crate::approximators::{DegreeOfFreedom, ErrorApproximator, PcwApproximator, SegmentModelSpec};
+use crate::approximators::{
+    DegreeOfFreedom, ErrorApproximator, PcwApproximator, PcwPolynomialArgs, PolynomialArgs,
+    SegmentModelSpec,
+};
 
 use crate::stack::Stack;
 use pcw_fn::{Functor, FunctorRef, PcwFn, VecPcwFn};
@@ -29,8 +32,9 @@ pub fn calc_cv_scores<T, D, E, S, A>(
     max_total_dof: Option<DegreeOfFreedom>,
 ) -> Option<CvFunc<E>>
 where
-    S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
-    A: PcwApproximator<S, T, D, E, Model = Option<DegreeOfFreedom>>,
+    T: Clone,
+    S: ErrorApproximator<T, D, E, Model = PolynomialArgs<T>>,
+    A: PcwApproximator<S, T, D, E, Model = PcwPolynomialArgs<T>>,
     E: Bounded + Real + Ord + FromPrimitive + Default + AddAssign + std::iter::Sum,
 {
     /// We'll use this type to annotate our CV scores with some metadata prior to finding the
@@ -96,13 +100,18 @@ where
                         let training_error = approx.total_training_error(
                             rb,
                             dof_partition.cut_indices,
-                            dof_partition.segment_dofs.iter().cloned(),
+                            dof_partition
+                                .segment_dofs
+                                .iter()
+                                .cloned()
+                                .map(PolynomialArgs::from),
                         );
                         // get the prediction error from the last cut to the end of the segment
+                        let prediction_dof = *dof_partition.segment_dofs.last().unwrap();
                         let cv_score = approx.prediction_error(
                             unsafe { dof_partition.cut_indices.last().unwrap_unchecked() } + 1,
                             rb,
-                            *dof_partition.segment_dofs.last().unwrap(),
+                            PolynomialArgs::from(prediction_dof),
                             &mut metric,
                         );
                         (training_error, cv_score)
@@ -110,11 +119,16 @@ where
                     None => {
                         // handle the 0 cut case where there is no "last optimal cut" (there isn't even a first one)
                         // but we still want a model
-                        let cv_score = approx.prediction_error(0, rb, n_dofs_nonzero, &mut metric);
+                        let cv_score = approx.prediction_error(
+                            0,
+                            rb,
+                            PolynomialArgs::from(n_dofs_nonzero),
+                            &mut metric,
+                        );
                         let training_error = approx.total_training_error::<usize>(
                             rb,
                             None,
-                            iter::once(n_dofs_nonzero),
+                            iter::once(PolynomialArgs::from(n_dofs_nonzero)),
                         );
                         (training_error, cv_score)
                     }
@@ -175,8 +189,9 @@ pub fn cv_scores_and_models<T, D, E, S, A>(
     mut metric: impl FnMut(&D, &D) -> E,
 ) -> Option<(CvFunc<E>, ModelFunc<E>)>
 where
-    S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
-    A: Sync + PcwApproximator<S, T, D, E, Model = Option<DegreeOfFreedom>>,
+    T: Clone,
+    S: ErrorApproximator<T, D, E, Model = PolynomialArgs<T>>,
+    A: Sync + PcwApproximator<S, T, D, E, Model = PcwPolynomialArgs<T>>,
     E: Bounded + Send + Sync + Real + Ord + FromPrimitive + Default + AddAssign + std::iter::Sum,
 {
     let data_len = approx.data_len();
@@ -203,14 +218,19 @@ where
                         approx,
                         0,
                         data_len - 1,
-                        dof_partition.segment_dofs.as_ref().iter().cloned(),
+                        dof_partition
+                            .segment_dofs
+                            .as_ref()
+                            .iter()
+                            .cloned()
+                            .map(PolynomialArgs::from),
                         dof_partition.cut_indices,
                     ),
                     None => crate::approximators::full_modelspec_on_seg(
                         approx,
                         0,
                         data_len - 1,
-                        iter::once(n_dofs_nonzero),
+                        iter::once(PolynomialArgs::from(n_dofs_nonzero)),
                         None::<usize>,
                     ),
                 };
@@ -224,7 +244,12 @@ where
                          stop_idx,
                          model: segment_model,
                      }| {
-                        approx.training_error(*start_idx, *stop_idx, *segment_model, &mut metric)
+                        approx.training_error(
+                            *start_idx,
+                            *stop_idx,
+                            segment_model.clone(),
+                            &mut metric,
+                        )
                     },
                 )
                 .sum();
@@ -240,7 +265,20 @@ where
 
         let model_func = pointwise_minimum_of_affines::<_, _, _, VecPcwFn<_, _>>(affines)
             .expect("Failed to find pointwise min")
-            .fmap(|aff| aff.metadata.expect("Encountered model-free γ-segment"));
+            .fmap(|aff| {
+                let f = aff.metadata.expect("Encountered model-free γ-segment");
+                f.fmap(
+                    |SegmentModelSpec {
+                         start_idx,
+                         stop_idx,
+                         model,
+                     }| SegmentModelSpec {
+                        start_idx,
+                        stop_idx,
+                        model: model.dof,
+                    },
+                )
+            });
         let score_func = calc_cv_scores(approx, &opt, &mut metric, max_total_dof)?;
         Some((score_func, model_func))
     }
@@ -280,8 +318,9 @@ pub fn models_with_cv_scores<T, D, E, S, A>(
     mut metric: impl FnMut(&D, &D) -> E,
 ) -> Option<ScoresAndModels<T, D, E, S>>
 where
-    S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
-    A: Sync + PcwApproximator<S, T, D, E, Model = Option<DegreeOfFreedom>>,
+    T: Clone,
+    S: ErrorApproximator<T, D, E, Model = PolynomialArgs<T>>,
+    A: Sync + PcwApproximator<S, T, D, E, Model = PcwPolynomialArgs<T>>,
     E: Bounded
         + Send
         + Sync
@@ -316,14 +355,19 @@ where
                         approx,
                         0,
                         data_len - 1,
-                        dof_partition.segment_dofs.as_ref().iter().cloned(),
+                        dof_partition
+                            .segment_dofs
+                            .as_ref()
+                            .iter()
+                            .cloned()
+                            .map(PolynomialArgs::from),
                         dof_partition.cut_indices,
                     ),
                     None => crate::approximators::full_approximation_on_seg(
                         approx,
                         0,
                         data_len - 1,
-                        iter::once(n_dofs_nonzero),
+                        iter::once(PolynomialArgs::from(n_dofs_nonzero)),
                         None::<usize>,
                     ),
                 };
@@ -431,8 +475,9 @@ where
         metric: impl FnMut(&D, &D) -> E,
     ) -> Option<Self>
     where
-        S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
-        A: Sync + PcwApproximator<S, T, D, E, Model = Option<DegreeOfFreedom>>,
+        T: Clone,
+        S: ErrorApproximator<T, D, E, Model = PolynomialArgs<T>>,
+        A: Sync + PcwApproximator<S, T, D, E, Model = PcwPolynomialArgs<T>>,
     {
         let (cv_func, model_func) = cv_scores_and_models(max_total_dof, approx, metric)?;
         // resample the cv score function to the model function; folding intervals with a minimum

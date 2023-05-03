@@ -35,7 +35,6 @@ impl<Time, Data, D: AsRef<[Data]>> TimeSeries<Time, Data, Vec<Time>, D> {
         Time: FromPrimitive + PartialOrd,
     {
         let times = (0..data.as_ref().len())
-            .into_iter()
             .map(Time::from_usize)
             .map(Option::unwrap)
             .collect_vec();
@@ -120,8 +119,8 @@ pub trait ErrorApproximator<Time, Data, Error> {
     /// What the model predicts for some input index (= a point in time)
     fn prediction(&self, prediction_time: &Time) -> Data;
 
-    /// The base model of the approximator
-    fn model(&self) -> &Self::Model;
+    // The base model of the approximator
+    // fn model(&self) -> &Self::Model;
 }
 
 /// Compute the full piecewise function mapping time indices to the corresponding models.

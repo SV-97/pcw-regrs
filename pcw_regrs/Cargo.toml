@@ -18,11 +18,12 @@ ordered-float = "3.2.0"
 derive-new = "0.5"
 maybe-owned = "0.3.4"
 ndarray = "0.15.6"
-polyfit-residuals = { version = "0.4.0", features = ["parallel_rayon"] }
+polyfit-residuals = { version = "0.6.0", features = ["parallel_rayon"] }
 pcw_fn = { version = "0.2.1", features = ["serde"] }
 serde = { version = "1.0.152", features = ["derive"], optional = true }
 thiserror = "1.0.38"
 is_sorted = "0.1.1"
+cfg-if = "1.0.0"
 
 [dev-dependencies]
 approx = "0.5.1"

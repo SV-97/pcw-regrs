@@ -186,12 +186,13 @@ mod approximators;
 pub mod solve_jump;
 mod stack;
 
-use approximators::PolynomialApproximator;
 pub use approximators::SegmentModelSpec;
 pub use approximators::{
     PcwApproximator, PcwConstantApproximator, PcwPolynomialApproximator, TimeSeries,
 };
+use approximators::{PcwPolynomialArgs, PolynomialApproximator};
 use itertools::Itertools;
+use ndarray::Array1;
 use num_traits::{real::Real, Bounded, Float, FromPrimitive, Signed};
 use ordered_float::{NotNan, OrderedFloat};
 #[cfg(feature = "serde")]
@@ -221,6 +222,7 @@ pub fn fit_pcw_poly<R>(
     response: &[R],
     max_total_dof: Option<NonZeroUsize>,
     max_seg_dof: Option<NonZeroUsize>,
+    weights: Option<&[R]>,
 ) -> Option<Solution<R>>
 where
     R: Real
@@ -238,7 +240,10 @@ where
     Solution::try_new(
         max_total_dof,
         &PcwPolynomialApproximator::fit_metric_data_from_model(
-            max_seg_dof,
+            PcwPolynomialArgs {
+                max_seg_dof,
+                weights: weights.map(|w| Array1::from(w.to_owned())),
+            },
             euclid_sq_metric,
             TimeSeries::new(&times, &response),
         ),
@@ -303,6 +308,7 @@ where
         &response_nn,
         max_total_dof.map(|n| NonZeroUsize::new(n).unwrap()),
         max_seg_dof.map(|dof| NonZeroUsize::new(dof).unwrap()),
+        None,
     )
     // TODO: propagate the specific error from a lower level rather than using options along the way.
     .ok_or(PolyFitError::EmptyData)

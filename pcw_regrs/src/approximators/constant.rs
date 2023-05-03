@@ -47,9 +47,9 @@ where
         self.mean.clone()
     }
 
-    fn model(&self) -> &Self::Model {
-        &()
-    }
+    // fn model(&self) -> &Self::Model {
+    //     &()
+    // }
 }
 
 /// Models a timeseries via a piecewise constant function.

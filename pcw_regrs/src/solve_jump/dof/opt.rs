@@ -1,6 +1,8 @@
 //! The part of the solution concerned with the optimal partitions and general implementation
 //! of the dynamic program.
-use crate::approximators::{DegreeOfFreedom, ErrorApproximator, PcwApproximator};
+use crate::approximators::{
+    DegreeOfFreedom, ErrorApproximator, PcwApproximator, PcwPolynomialArgs, PolynomialArgs,
+};
 use crate::stack::{HeapStack, Stack};
 use derive_new::new;
 use ndarray::{s, Array2, ArrayView2};
@@ -288,8 +290,8 @@ impl<E> OptimalJumpData<E> {
         solutions: &mut HeapStack<((isize, usize), E)>,
     ) -> ((isize, usize), E)
     where
-        S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
-        A: Sync + PcwApproximator<S, T, D, E, Model = Option<DegreeOfFreedom>>,
+        S: ErrorApproximator<T, D, E, Model = PolynomialArgs<T>>,
+        A: Sync + PcwApproximator<S, T, D, E, Model = PcwPolynomialArgs<T>>,
         E: Send + Sync + Real + Ord,
     {
         let r = right_boundary;
@@ -307,7 +309,7 @@ impl<E> OptimalJumpData<E> {
                 let d = approx.training_error(
                     l + 1,
                     r + 1,
-                    unsafe { NonZeroUsize::new_unchecked(p_r) },
+                    PolynomialArgs::from(unsafe { NonZeroUsize::new_unchecked(p_r) }),
                     |_, _| unreachable!(),
                 );
 
@@ -328,7 +330,7 @@ impl<E> OptimalJumpData<E> {
                     approx.training_error(
                         0,
                         r + 1,
-                        unsafe { NonZeroUsize::new_unchecked(k_dof_plus) },
+                        PolynomialArgs::from(unsafe { NonZeroUsize::new_unchecked(k_dof_plus) }),
                         |_, _| unreachable!(),
                     ),
                 ));
@@ -424,8 +426,8 @@ impl<E> OptimalJumpData<E> {
         approx: &A,
     ) -> Self
     where
-        S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
-        A: Sync + PcwApproximator<S, T, D, E, Model = Option<DegreeOfFreedom>>,
+        S: ErrorApproximator<T, D, E, Model = PolynomialArgs<T>>,
+        A: Sync + PcwApproximator<S, T, D, E, Model = PcwPolynomialArgs<T>>,
         E: Send + Sync + Real + Ord,
     {
         let data_len = approx.data_len();
@@ -434,8 +436,8 @@ impl<E> OptimalJumpData<E> {
         } else {
             data_len
         };
-        let max_seg_dof = if let Some(max_dof) = approx.model() {
-            std::cmp::min(max_total_dof, usize::from(*max_dof))
+        let max_seg_dof = if let Some(max_dof) = approx.model().max_seg_dof {
+            std::cmp::min(max_total_dof, usize::from(max_dof))
         } else {
             max_total_dof
         };
@@ -450,7 +452,7 @@ impl<E> OptimalJumpData<E> {
                 *energy = Some(approx.training_error(
                     0,
                     n,
-                    unsafe { NonZeroUsize::new_unchecked(1) },
+                    PolynomialArgs::from(unsafe { NonZeroUsize::new_unchecked(1) }),
                     |_, _| unreachable!(),
                 ));
             }
@@ -506,7 +508,7 @@ impl<E> OptimalJumpData<E> {
 mod tests {
 
     use super::*;
-    use crate::approximators::{PcwPolynomialApproximator, TimeSeries};
+    use crate::approximators::{PcwPolynomialApproximator, PcwPolynomialArgs, TimeSeries};
     use ordered_float::OrderedFloat;
 
     fn fit(
@@ -526,7 +528,10 @@ mod tests {
             .map(OrderedFloat)
             .collect_vec();
         let approx = PcwPolynomialApproximator::fit_metric_data_from_model(
-            max_seg_dof,
+            PcwPolynomialArgs {
+                max_seg_dof,
+                weights: None,
+            },
             metric,
             TimeSeries::new(times, data),
         );
