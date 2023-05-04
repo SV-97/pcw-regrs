@@ -6,9 +6,12 @@ use num_traits::{real::Real, Signed};
 
 use std::{fmt::Debug, iter::Sum, num::NonZeroUsize};
 
+// use pcw_fn::PcwFn;
 use polyfit_residuals::{
     all_residuals_par, poly::OwnedNewtonPolynomial, try_fit_poly_with_residual, weighted, PolyFit,
 };
+
+use crate::euclid_sq_metric;
 
 use super::{DegreeOfFreedom, ErrorApproximator, PcwApproximator, TimeSeries};
 
@@ -19,6 +22,7 @@ pub struct PolynomialApproximator<Data, Error> {
     poly: OwnedNewtonPolynomial<Data, Data>,
     training_error: Error,
 }
+
 impl<D, E> PolynomialApproximator<D, E> {
     pub fn poly(self) -> OwnedNewtonPolynomial<D, D> {
         self.poly
@@ -26,12 +30,12 @@ impl<D, E> PolynomialApproximator<D, E> {
 }
 
 #[derive(new, Debug, Eq, PartialEq, Clone)]
-pub struct PolynomialArgs<TimeData> {
+pub struct PolynomialArgs<'a, TimeData> {
     pub dof: DegreeOfFreedom,
-    pub weights: Option<Array1<TimeData>>,
+    pub weights: Option<ArrayView1<'a, TimeData>>,
 }
 
-impl<T> From<DegreeOfFreedom> for PolynomialArgs<T> {
+impl<'a, T> From<DegreeOfFreedom> for PolynomialArgs<'a, T> {
     fn from(dof: DegreeOfFreedom) -> Self {
         Self { dof, weights: None }
     }
@@ -43,9 +47,9 @@ where
     TimeData: Real + Signed + Sum + Eq + 'static,
     Error: Clone + Real + From<TimeData>, // + Unsigned,
 {
-    type Model = PolynomialArgs<TimeData>;
-    fn fit_metric_data_from_model<T: AsRef<[TimeData]>, D: AsRef<[TimeData]>>(
-        PolynomialArgs { dof, weights }: Self::Model,
+    type Model<'a> = PolynomialArgs<'a, TimeData>;
+    fn fit_metric_data_from_model<'a, T: AsRef<[TimeData]>, D: AsRef<[TimeData]>>(
+        PolynomialArgs { dof, weights }: Self::Model<'a>,
         _metric: impl FnMut(&TimeData, &TimeData) -> Error,
         data: TimeSeries<TimeData, TimeData, T, D>,
     ) -> Self {
@@ -122,7 +126,7 @@ impl<TimeData, Error>
     for PcwPolynomialApproximator<TimeData>
 where
     TimeData: Real + Signed + Sum + Eq + 'static + Send + Sync,
-    Error: From<TimeData> + Clone + Real, // Clone + FromPrimitive + std::fmt::Display + Num, // + Unsigned,
+    Error: From<TimeData> + Real, // Clone + FromPrimitive + std::fmt::Display + Num, // + Unsigned,
 {
     /// Maximal degrees of freedom of polynomials considered
     type Model = PcwPolynomialArgs<TimeData>;
@@ -213,26 +217,35 @@ where
         &self,
         segment_start_idx: usize,
         segment_stop_idx: usize,
-        PolynomialArgs { dof, .. }: PolynomialArgs<TimeData>,
-        mut metric: impl FnMut(&TimeData, &TimeData) -> Error,
+        PolynomialArgs { dof, weights }: PolynomialArgs<TimeData>,
+        mut _metric: impl FnMut(&TimeData, &TimeData) -> Error,
     ) -> Error {
-        let w = self
-            .args
-            .weights
-            .as_ref()
-            .map(|w| From::from(w[segment_stop_idx + 1]))
+        // The weights for the segment up to and including the prediction point
+        let segment_weights = match (&weights, self.args.weights.as_ref()) {
+            (Some(weights), _) => Some(weights.view()),
+            (_, Some(weights)) => Some(weights.slice(s![segment_start_idx..=segment_stop_idx])),
+            (_, _) => None,
+        };
+        // The polynomial approximating this segment
+        let a = match segment_weights {
+            Some(w) => self.approximation_on_segment(
+                segment_start_idx,
+                segment_stop_idx,
+                PolynomialArgs {
+                    dof,
+                    weights: Some(w.slice(s![..w.len() - 1])),
+                },
+            ),
+            None => self.approximation_on_segment(
+                segment_start_idx,
+                segment_stop_idx,
+                PolynomialArgs { dof, weights: None },
+            ),
+        };
+        // The weight for the point which we predict
+        let next_w = weights
+            .map(|w| From::from(*w.last().unwrap()))
             .unwrap_or_else(Error::one);
-        let a = self.approximation_on_segment(
-            segment_start_idx,
-            segment_stop_idx,
-            PolynomialArgs {
-                dof,
-                weights: self.args.weights.as_ref().map(|w| {
-                    let slice_weights = w.slice(s![segment_start_idx..=segment_stop_idx]);
-                    slice_weights.to_owned()
-                }),
-            },
-        );
         let next_t: &TimeData = <PcwPolynomialApproximator<TimeData> as PcwApproximator<
             PolynomialApproximator<TimeData, Error>,
             TimeData,
@@ -250,6 +263,6 @@ where
             TimeData,
             Error,
         >>::prediction(&a, next_t);
-        w * metric(&predicted_y, next_y)
+        next_w * From::from(euclid_sq_metric(&predicted_y, next_y))
     }
 }

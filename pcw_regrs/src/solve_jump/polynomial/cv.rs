@@ -3,8 +3,8 @@ use super::OptimalJumpData;
 use crate::affine_min::{pointwise_minimum_of_affines, AffineFunction};
 use crate::annotate::Annotated;
 use crate::approximators::{
-    DegreeOfFreedom, ErrorApproximator, PcwApproximator, PcwPolynomialArgs, PolynomialArgs,
-    SegmentModelSpec,
+    DegreeOfFreedom, ErrorApproximator, PcwApproximator, PcwPolynomialApproximator,
+    PcwPolynomialArgs, PolynomialApproximator, PolynomialArgs, SegmentModelSpec,
 };
 
 use crate::stack::Stack;
@@ -13,29 +13,27 @@ use pcw_fn::{Functor, FunctorRef, PcwFn, VecPcwFn};
 use derive_new::new;
 use itertools::Itertools;
 use num_traits::real::Real;
-use num_traits::{Bounded, FromPrimitive, Zero};
+use num_traits::{Bounded, FromPrimitive, Signed, Zero};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use std::iter;
+use std::iter::{self, Sum};
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::AddAssign;
 
 /// Calculate the cross validation scores for all models of the approximation given the
 /// corresponding optimal jump data. Each score is annotated with its standard error.
-pub fn calc_cv_scores<T, D, E, S, A>(
-    approx: &A,
+pub fn calc_cv_scores<D, E>(
+    approx: &PcwPolynomialApproximator<D>,
     opt: &OptimalJumpData<E>,
     mut metric: impl FnMut(&D, &D) -> E,
     max_total_dof: Option<DegreeOfFreedom>,
 ) -> Option<CvFunc<E>>
 where
-    D: Clone,
-    S: for<'a> ErrorApproximator<T, D, E, Model<'a> = PolynomialArgs<'a, D>>,
-    A: PcwApproximator<S, T, D, E, Model = PcwPolynomialArgs<D>>,
-    E: Bounded + Real + Ord + FromPrimitive + Default + AddAssign + std::iter::Sum,
+    D: Real + Signed + Sum + Eq + 'static + Send + Sync,
+    E: Bounded + Real + Ord + FromPrimitive + Default + AddAssign + std::iter::Sum + From<D>,
 {
     /// We'll use this type to annotate our CV scores with some metadata prior to finding the
     /// pointwise min of our affine functions so we can easily recover the n_dofs from the
@@ -55,10 +53,9 @@ where
         }
     }
 
-    if approx.data_len().is_zero() {
-        None
-    } else {
-        let data_len = approx.data_len();
+    match <PcwPolynomialApproximator<D> as PcwApproximator<PolynomialApproximator<D, E>, D, D, E,>>::data_len(approx) {
+    0 => None,
+    data_len => {
         let mut cv_func = VecPcwFn::zero(); // this is CV : γ ↦ ∑ᵣ (CVᵣᵒᵖᵗ(γ))
         let mut cv_func_sq: VecPcwFn<E, E> = VecPcwFn::zero(); // this is  γ ↦ ∑ᵣ (CVᵣᵒᵖᵗ(γ))²
 
@@ -180,21 +177,35 @@ where
         )
     }
 }
+}
 
 /// Calculate the functions mapping hyperparameter values to cross validation scores (including
 /// standard errors) and model params.
-pub fn cv_scores_and_models<'a, T, D, E, S, A>(
+pub fn cv_scores_and_models<D, E>(
     max_total_dof: Option<DegreeOfFreedom>,
-    approx: &A,
+    approx: &PcwPolynomialApproximator<D>,
     mut metric: impl FnMut(&D, &D) -> E,
-) -> Option<(CvFunc<E>, ModelFunc<'a, D, E>)>
+) -> Option<(CvFunc<E>, ModelFunc<E>)>
 where
-    D: Clone,
-    S: for<'b> ErrorApproximator<T, D, E, Model<'b> = PolynomialArgs<'b, D>>,
-    A: Sync + PcwApproximator<S, T, D, E, Model = PcwPolynomialArgs<D>>,
-    E: Bounded + Send + Sync + Real + Ord + FromPrimitive + Default + AddAssign + std::iter::Sum,
+    D: Real + Send + Signed + Sum + Sync + Eq + 'static,
+    E: Bounded
+        + Send
+        + Sync
+        + Real
+        + Ord
+        + FromPrimitive
+        + Default
+        + AddAssign
+        + std::iter::Sum
+        + From<D>,
 {
-    let data_len = approx.data_len();
+    // let data_len = approx.data_len();
+    let data_len = <PcwPolynomialApproximator<D> as PcwApproximator<
+        PolynomialApproximator<D, E>,
+        D,
+        D,
+        E,
+    >>::data_len(approx);
     if data_len.is_zero() {
         None
     } else {
@@ -214,19 +225,21 @@ where
             let n_dofs_nonzero = unsafe { NonZeroUsize::new_unchecked(n_dofs) };
             let model: VecPcwFn<_, _> =
                 match opt.optimal_cuts_with_buf(n_dofs_nonzero, &mut cut_buffer, &mut dof_buffer) {
-                    Some(dof_partition) => crate::approximators::full_modelspec_on_seg(
-                        approx,
-                        0,
-                        data_len - 1,
-                        dof_partition
-                            .segment_dofs
-                            .as_ref()
-                            .iter()
-                            .cloned()
-                            .map(PolynomialArgs::from),
-                        dof_partition.cut_indices,
-                    ),
-                    None => crate::approximators::full_modelspec_on_seg(
+                    Some(dof_partition) => {
+                        crate::approximators::full_modelspec_on_seg::<_, _, _, _, _, E>(
+                            approx,
+                            0,
+                            data_len - 1,
+                            dof_partition
+                                .segment_dofs
+                                .as_ref()
+                                .iter()
+                                .cloned()
+                                .map(PolynomialArgs::from),
+                            dof_partition.cut_indices,
+                        )
+                    }
+                    None => crate::approximators::full_modelspec_on_seg::<_, _, _, _, _, E>(
                         approx,
                         0,
                         data_len - 1,
@@ -263,24 +276,22 @@ where
             )
         });
 
-        let model_func: VecPcwFn<E, VecPcwFn<usize, SegmentModelSpec<PolynomialArgs<D>>>> =
-            pointwise_minimum_of_affines::<_, _, _, VecPcwFn<_, _>>(affines)
-                .expect("Failed to find pointwise min")
-                .fmap(|aff| aff.metadata.expect("Encountered model-free γ-segment"));
-        // .fmap(|aff| {
-        //     let f = aff.metadata.expect("Encountered model-free γ-segment");
-        //     f.fmap(
-        //         |SegmentModelSpec {
-        //              start_idx,
-        //              stop_idx,
-        //              model,
-        //          }| SegmentModelSpec {
-        //             start_idx,
-        //             stop_idx,
-        //             model: PolynomialArgs { dof: model.dof, weights: () },
-        //         },
-        //     )
-        // });
+        let model_func = pointwise_minimum_of_affines::<_, _, _, VecPcwFn<_, _>>(affines)
+            .expect("Failed to find pointwise min")
+            .fmap(|aff| {
+                let f = aff.metadata.expect("Encountered model-free γ-segment");
+                f.fmap(
+                    |SegmentModelSpec {
+                         start_idx,
+                         stop_idx,
+                         model,
+                     }| SegmentModelSpec {
+                        start_idx,
+                        stop_idx,
+                        model: model.dof,
+                    },
+                )
+            });
         let score_func = calc_cv_scores(approx, &opt, &mut metric, max_total_dof)?;
         Some((score_func, model_func))
     }
@@ -314,15 +325,13 @@ where
 
 /// Calculates the cross validation scores and jump points for all possible parameter choices
 /// together with a function mapping parameter values to data models.
-pub fn models_with_cv_scores<T, D, E, S, A>(
+pub fn models_with_cv_scores<D, E>(
     max_total_dof: Option<DegreeOfFreedom>,
-    approx: &A,
+    approx: &PcwPolynomialApproximator<D>,
     mut metric: impl FnMut(&D, &D) -> E,
-) -> Option<ScoresAndModels<T, D, E, S>>
+) -> Option<ScoresAndModels<D, D, E, PolynomialApproximator<D, E>>>
 where
-    D: Clone,
-    S: for<'a> ErrorApproximator<T, D, E, Model<'a> = PolynomialArgs<'a, D>>,
-    A: Sync + PcwApproximator<S, T, D, E, Model = PcwPolynomialArgs<D>>,
+    D: Signed + std::iter::Sum + Eq + Real + 'static + Send + Sync,
     E: Bounded
         + Send
         + Sync
@@ -332,10 +341,18 @@ where
         + FromPrimitive
         + Default
         + AddAssign
-        + std::iter::Sum,
+        + std::iter::Sum
+        + Signed
+        + From<D>,
 {
     eprintln!("Starting calculation of total CV scores");
-    let data_len = approx.data_len();
+    // let data_len = approx.data_len();
+    let data_len = <PcwPolynomialApproximator<D> as PcwApproximator<
+        PolynomialApproximator<D, E>,
+        D,
+        D,
+        E,
+    >>::data_len(approx);
     if data_len.is_zero() {
         None
     } else {
@@ -396,13 +413,13 @@ where
 
 /// The result of running the algorithm finding the absolute minimum of the CV score.
 #[derive(new)]
-pub struct CrossValidationResult<'a, T, D, E, S>
+pub struct CrossValidationResult<T, D, E, S>
 where
     E: Ord,
     S: ErrorApproximator<T, D, E>,
 {
     /// The best models ordered by CV score (ascending - lower is better)
-    pub best_models: Vec<ScoredModel<'a, T, D, E, S>>,
+    pub best_models: Vec<ScoredModel<T, D, E, S>>,
     /// The full cross validation function: it maps γ to the CV score of the solution
     /// to the γ-penalized partition problem.
     pub full_cv_func: VecPcwFn<E, E>,
@@ -412,16 +429,14 @@ where
 }
 
 /// An optimal model with respect to the one standard error rule.
-pub type OseBestModel<'a, T, D, E, S> = ScoredModel<'a, T, D, E, S>;
+pub type OseBestModel<T, D, E, S> = ScoredModel<T, D, E, S>;
 
 /// An optimal model minimizing the CV score.
-pub type CvMinimizerModel<'a, T, D, E, S> = ScoredModel<'a, T, D, E, S>;
+pub type CvMinimizerModel<T, D, E, S> = ScoredModel<T, D, E, S>;
 
 /// Maps each penalty γ to the corresponding optimal models given as piecewise model
 /// specifications: the arguments of the "inner" piecewise function are jump indices.
-pub type ModelFunc<'a, D, E> =
-    VecPcwFn<E, VecPcwFn<usize, SegmentModelSpec<PolynomialArgs<'a, D>>>>;
-// pub type ModelFunc<E> = VecPcwFn<E, VecPcwFn<usize, SegmentModelSpec<NonZeroUsize>>>;
+pub type ModelFunc<E> = VecPcwFn<E, VecPcwFn<usize, SegmentModelSpec<NonZeroUsize>>>;
 
 /// A function mapping hyperparameter values to CV scores; each score being annotated with
 /// its standard error.
@@ -429,24 +444,24 @@ pub type CvFunc<E> = VecPcwFn<E, Annotated<E, E>>;
 
 /// A model for a timeseries and its CV score.
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct ScoredModel<'a, T, D, E, S>
+pub struct ScoredModel<T, D, E, S>
 where
     E: Ord,
     S: ErrorApproximator<T, D, E>,
 {
     /// A piecewise function where the domain are jump indices and the codomain models (so
     /// elements of Ω).
-    pub model: VecPcwFn<usize, SegmentModelSpec<S::Model<'a>>>,
+    pub model: VecPcwFn<usize, SegmentModelSpec<S::Model>>,
     /// The cross validation score of the full model.
     pub score: E,
     _phantom: PhantomData<(T, D)>,
 }
 
-impl<'a, T, D, E: Ord, S> ScoredModel<'a, T, D, E, S>
+impl<T, D, E: Ord, S> ScoredModel<T, D, E, S>
 where
     S: ErrorApproximator<T, D, E>,
 {
-    pub fn new(model: VecPcwFn<usize, SegmentModelSpec<S::Model<'a>>>, score: E) -> Self {
+    pub fn new(model: VecPcwFn<usize, SegmentModelSpec<S::Model>>, score: E) -> Self {
         Self {
             model,
             score,
@@ -460,28 +475,27 @@ where
 /// model functions.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Solution<'a, D, E> {
-    model_func: ModelFunc<'a, D, E>,
+pub struct Solution<E> {
+    model_func: ModelFunc<E>,
     cv_func: CvFunc<E>,
     /// CV function downsampled to the jumps of the model function.
     down_cv_func: CvFunc<E>,
 }
 
-impl<'a, D, E> Solution<'a, D, E>
+impl<E> Solution<E>
 where
     E: Bounded + Send + Sync + Real + Ord + FromPrimitive + Default + AddAssign + std::iter::Sum,
 {
     /// Try to calculate the solution for a given approximator using some metric and at most
     /// `max_tota_dof` degrees of freedom for the full model.
-    pub fn try_new<T, S, A>(
+    pub fn try_new<D>(
         max_total_dof: Option<NonZeroUsize>,
-        approx: &A,
+        approx: &PcwPolynomialApproximator<D>,
         metric: impl FnMut(&D, &D) -> E,
     ) -> Option<Self>
     where
-        D: Clone,
-        S: for<'b> ErrorApproximator<T, D, E, Model<'b> = PolynomialArgs<'b, D>>,
-        A: Sync + PcwApproximator<S, T, D, E, Model = PcwPolynomialArgs<D>>,
+        D: Signed + std::iter::Sum + Eq + Real + 'static + Send + Sync,
+        E: From<D>,
     {
         let (cv_func, model_func) = cv_scores_and_models(max_total_dof, approx, metric)?;
         // resample the cv score function to the model function; folding intervals with a minimum
@@ -506,10 +520,9 @@ where
     }
 
     /// Return the best model w.r.t. the "one standard error" rule.
-    pub fn ose_best<T, S>(&'a self) -> Option<OseBestModel<T, D, E, S>>
+    pub fn ose_best<T, D, S>(&self) -> Option<OseBestModel<T, D, E, S>>
     where
-        D: Clone,
-        S: for<'b> ErrorApproximator<T, D, E, Model<'b> = PolynomialArgs<'b, D>>,
+        S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
     {
         let Annotated {
             metadata: se_min,
@@ -535,22 +548,20 @@ where
     }
 
     /// Return the global minimizer of the CV score.
-    pub fn cv_minimizer<T, S>(&'a self) -> Option<CvMinimizerModel<T, D, E, S>>
+    pub fn cv_minimizer<T, D, S>(&self) -> Option<CvMinimizerModel<T, D, E, S>>
     where
-        D: Clone,
-        S: for<'b> ErrorApproximator<T, D, E, Model<'b> = PolynomialArgs<'b, D>>,
+        S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
     {
         self.n_cv_minimizers(1).and_then(|mut vec| vec.pop())
     }
 
     /// Return the models corresponding to the `n_best` lowest CV scores.
-    pub fn n_cv_minimizers<T, S>(
-        &'a self,
+    pub fn n_cv_minimizers<T, D, S>(
+        &self,
         n_best: usize,
     ) -> Option<Vec<CvMinimizerModel<T, D, E, S>>>
     where
-        D: Clone,
-        S: for<'b> ErrorApproximator<T, D, E, Model<'b> = PolynomialArgs<'b, D>>,
+        S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
         E: Bounded
             + Send
             + Sync
@@ -587,7 +598,7 @@ where
 
     /// The model function mapping hyperparameters γ to the corresponding solutions of
     /// the penalized partition problem.
-    pub fn model_func(&self) -> &ModelFunc<'a, D, E> {
+    pub fn model_func(&self) -> &ModelFunc<E> {
         &self.model_func
     }
 }

@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
 use std::{marker::PhantomData, ops::Index};
 
-mod constant;
+// mod constant;
 mod polynomial;
 
-pub use constant::*;
+// pub use constant::*;
 pub use polynomial::*;
 
 /// A discrete measure of model complexity - lower number means lower complexity.
@@ -104,11 +104,11 @@ impl<Time, Data, T: AsRef<[Time]>, D: AsRef<[Data]>> TimeSeries<Time, Data, T, D
 pub trait ErrorApproximator<Time, Data, Error> {
     /// The base model of the approximation with additional model coefficients (i.e. degree
     /// for a polynomial model).
-    type Model;
+    type Model<'a>;
 
     /// A way to fit the generic base model to specific data subject to some metric on the data
-    fn fit_metric_data_from_model<T: AsRef<[Time]>, D: AsRef<[Data]>>(
-        base_model: Self::Model,
+    fn fit_metric_data_from_model<'a, T: AsRef<[Time]>, D: AsRef<[Data]>>(
+        base_model: Self::Model<'a>,
         metric: impl FnMut(&Data, &Data) -> Error,
         data: TimeSeries<Time, Data, T, D>,
     ) -> Self;
@@ -124,18 +124,18 @@ pub trait ErrorApproximator<Time, Data, Error> {
 }
 
 /// Compute the full piecewise function mapping time indices to the corresponding models.
-pub fn full_approximation_on_seg<'a, U, P, SegmentApprox, Time, Data, Error>(
+pub fn full_approximation_on_seg<'a, 'b, U, P, SegmentApprox, Time, Data, Error>(
     approx: &P,
     segment_start_idx: usize,
     segment_stop_idx: usize,
-    segment_models: impl IntoIterator<Item = SegmentApprox::Model>,
+    segment_models: impl IntoIterator<Item = SegmentApprox::Model<'b>>,
     cuts: impl IntoIterator<Item = U>,
 ) -> VecPcwFn<usize, SegmentApprox>
 where
     U: Into<maybe_owned::MaybeOwned<'a, usize>>,
     P: PcwApproximator<SegmentApprox, Time, Data, Error> + ?Sized,
     SegmentApprox: ErrorApproximator<Time, Data, Error>,
-    SegmentApprox::Model: Clone,
+    SegmentApprox::Model<'b>: Clone,
 {
     let mut models = segment_models.into_iter();
     let (mut cuts, approximations): (Vec<_>, Vec<_>) = cuts
@@ -165,18 +165,18 @@ pub struct SegmentModelSpec<T> {
 }
 
 /// Compute the full piecewise function mapping time indices to the corresponding models
-pub fn full_modelspec_on_seg<'a, U, P, SegmentApprox, Time, Data, Error>(
+pub fn full_modelspec_on_seg<'a, 'b, U, P, SegmentApprox, Time, Data, Error>(
     _approx: &P,
     segment_start_idx: usize,
     segment_stop_idx: usize,
-    segment_models: impl IntoIterator<Item = SegmentApprox::Model>,
+    segment_models: impl IntoIterator<Item = SegmentApprox::Model<'b>>,
     cuts: impl IntoIterator<Item = U>,
-) -> VecPcwFn<usize, SegmentModelSpec<SegmentApprox::Model>>
+) -> VecPcwFn<usize, SegmentModelSpec<SegmentApprox::Model<'b>>>
 where
     U: Into<maybe_owned::MaybeOwned<'a, usize>>,
     P: PcwApproximator<SegmentApprox, Time, Data, Error> + ?Sized,
     SegmentApprox: ErrorApproximator<Time, Data, Error>,
-    SegmentApprox::Model: Clone,
+    SegmentApprox::Model<'b>: Clone,
 {
     let mut models = segment_models.into_iter();
     let (mut cuts, approximations): (Vec<_>, Vec<_>) = cuts
@@ -224,11 +224,11 @@ where
     ///
     /// # Panics
     /// May panic if indices are outside the data domain.
-    fn approximation_on_segment(
+    fn approximation_on_segment<'a>(
         &self,
         segment_start_idx: usize,
         segment_stop_idx: usize,
-        segment_model: SegmentApprox::Model,
+        segment_model: SegmentApprox::Model<'a>,
     ) -> SegmentApprox;
 
     /// Provides access to underlying sample times of the timeseries.
@@ -239,16 +239,16 @@ where
 
     /// Returns the error made by this model on `data[0..=segment_stop_idx]` given some sequence
     /// of cuts.
-    fn total_training_error<'a, U>(
+    fn total_training_error<'a, 'b, U>(
         &self,
         segment_stop_idx: usize,
         cuts: impl IntoIterator<Item = U>,
-        segment_models: impl IntoIterator<Item = SegmentApprox::Model>,
+        segment_models: impl IntoIterator<Item = SegmentApprox::Model<'b>>,
     ) -> Error
     where
         U: Into<maybe_owned::MaybeOwned<'a, usize>>,
         Error: std::iter::Sum, // Zero + AddAssign,
-        SegmentApprox::Model: Clone,
+        SegmentApprox::Model<'b>: Clone,
     {
         full_approximation_on_seg(self, 0, segment_stop_idx, segment_models, cuts)
             .into_funcs()
@@ -257,11 +257,11 @@ where
     }
 
     /// Returns the residual training error made by the model on some data interval.
-    fn training_error(
+    fn training_error<'a>(
         &self,
         segment_start_idx: usize,
         segment_stop_idx: usize,
-        segment_model: SegmentApprox::Model,
+        segment_model: SegmentApprox::Model<'a>,
         mut metric: impl FnMut(&Data, &Data) -> Error,
     ) -> Error {
         metric(
@@ -274,11 +274,11 @@ where
 
     /// Returns the prediction error made by the model from some data interval to the next
     /// point after the interval.
-    fn prediction_error(
+    fn prediction_error<'a>(
         &self,
         segment_start_idx: usize,
         segment_stop_idx: usize,
-        segment_model: SegmentApprox::Model,
+        segment_model: SegmentApprox::Model<'a>,
         mut metric: impl FnMut(&Data, &Data) -> Error,
     ) -> Error {
         metric(

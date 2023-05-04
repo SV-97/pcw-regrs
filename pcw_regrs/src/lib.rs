@@ -188,7 +188,7 @@ mod stack;
 
 pub use approximators::SegmentModelSpec;
 pub use approximators::{
-    PcwApproximator, PcwConstantApproximator, PcwPolynomialApproximator, TimeSeries,
+    PcwApproximator, PcwPolynomialApproximator, TimeSeries, /* PcwConstantApproximator */
 };
 use approximators::{PcwPolynomialArgs, PolynomialApproximator};
 use itertools::Itertools;
@@ -202,7 +202,7 @@ use std::{iter::Sum, num::NonZeroUsize, ops::AddAssign};
 use thiserror::Error;
 
 /// A piecewise polynomial model for a timeseries and its cv score.
-pub type ScoredPolyModel<R> = ScoredModel<R, R, R, PolynomialApproximator<R, R>>;
+pub type ScoredPolyModel<'a, R> = ScoredModel<'a, R, R, R, PolynomialApproximator<R, R>>;
 
 /// Squared euclidean metric d(x,y)=‖x-y‖₂².
 #[inline]
@@ -217,13 +217,13 @@ pub fn euclid_sq_metric<T: Real>(x: &T, y: &T) -> T {
 ///
 /// The full model should locally spend no more than `max_seg_dof` degrees of freedom
 /// and globally no more than `max_total_dof` for the full model.
-pub fn fit_pcw_poly<R>(
+pub fn fit_pcw_poly<'a, R>(
     times: &[R],
     response: &[R],
     max_total_dof: Option<NonZeroUsize>,
     max_seg_dof: Option<NonZeroUsize>,
     weights: Option<&[R]>,
-) -> Option<Solution<R>>
+) -> Option<Solution<'a, R, R>>
 where
     R: Real
         + Ord
@@ -269,12 +269,12 @@ pub enum PolyFitError {
 }
 
 /// Convenience wrapper for [fit_pcw_poly] that wraps floating point types into [OrderedFloat]s.
-pub fn fit_pcw_poly_primitive<R>(
+pub fn fit_pcw_poly_primitive<'a, R>(
     times: &[R],
     response: &[R],
     max_total_dof: Option<usize>,
     max_seg_dof: Option<usize>,
-) -> Result<Solution<OrderedFloat<R>>, PolyFitError>
+) -> Result<Solution<'a, OrderedFloat<R>, OrderedFloat<R>>, PolyFitError>
 where
     R: PrimitiveFloat
         + Signed

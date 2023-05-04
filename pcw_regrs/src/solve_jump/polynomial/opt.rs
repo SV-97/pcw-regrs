@@ -290,7 +290,7 @@ impl<E> OptimalJumpData<E> {
         solutions: &mut HeapStack<((isize, usize), E)>,
     ) -> ((isize, usize), E)
     where
-        S: for<'a> ErrorApproximator<T, D, E, Model<'a> = PolynomialArgs<'a, D>>,
+        S: ErrorApproximator<T, D, E, Model = PolynomialArgs<D>>,
         A: Sync + PcwApproximator<S, T, D, E, Model = PcwPolynomialArgs<D>>,
         E: Send + Sync + Real + Ord,
     {
@@ -347,7 +347,7 @@ impl<E> OptimalJumpData<E> {
     /// Solves the minimization in the forward step of the bellman equation similar to `bellman_step`
     /// with the core logic written using iterators.
     #[allow(unused)]
-    fn bellman_step_iter<'a, T, D, S, A>(
+    fn bellman_step_iter<T, D, S, A>(
         approx: &A,
         bellman: ArrayView2<Option<E>>,
         right_boundary: usize,
@@ -356,7 +356,7 @@ impl<E> OptimalJumpData<E> {
         _solutions: &mut HeapStack<((isize, usize), E)>, // not needed
     ) -> ((isize, usize), E)
     where
-        S: ErrorApproximator<T, D, E, Model<'a> = DegreeOfFreedom>,
+        S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
         A: Sync + PcwApproximator<S, T, D, E, Model = Option<DegreeOfFreedom>>,
         E: Send + Sync + Real + Ord,
     {
@@ -426,7 +426,7 @@ impl<E> OptimalJumpData<E> {
         approx: &A,
     ) -> Self
     where
-        S: for<'a> ErrorApproximator<T, D, E, Model<'a> = PolynomialArgs<'a, D>>,
+        S: ErrorApproximator<T, D, E, Model = PolynomialArgs<D>>,
         A: Sync + PcwApproximator<S, T, D, E, Model = PcwPolynomialArgs<D>>,
         E: Send + Sync + Real + Ord,
     {
