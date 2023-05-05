@@ -8,6 +8,7 @@ use crate::approximators::{
 };
 
 use crate::stack::Stack;
+use ndarray::{s, Array1};
 use pcw_fn::{Functor, FunctorRef, PcwFn, VecPcwFn};
 
 use derive_new::new;
@@ -21,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::iter;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
-use std::ops::AddAssign;
+use std::ops::{AddAssign, Deref};
 
 /// Calculate the cross validation scores for all models of the approximation given the
 /// corresponding optimal jump data. Each score is annotated with its standard error.
@@ -282,7 +283,7 @@ where
         //     )
         // });
         let score_func = calc_cv_scores(approx, &opt, &mut metric, max_total_dof)?;
-        Some((score_func, model_func))
+        Some((score_func, ModelFunc(model_func)))
     }
 }
 
@@ -419,13 +420,113 @@ pub type CvMinimizerModel<'a, T, D, E, S> = ScoredModel<'a, T, D, E, S>;
 
 /// Maps each penalty γ to the corresponding optimal models given as piecewise model
 /// specifications: the arguments of the "inner" piecewise function are jump indices.
-pub type ModelFunc<'a, D, E> =
-    VecPcwFn<E, VecPcwFn<usize, SegmentModelSpec<PolynomialArgs<'a, D>>>>;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelFunc<'a, D, E>(
+    VecPcwFn<E, VecPcwFn<usize, SegmentModelSpec<PolynomialArgs<'a, D>>>>,
+);
+
+impl<'a, D, E> Deref for ModelFunc<'a, D, E> {
+    type Target = VecPcwFn<E, VecPcwFn<usize, SegmentModelSpec<PolynomialArgs<'a, D>>>>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 // pub type ModelFunc<E> = VecPcwFn<E, VecPcwFn<usize, SegmentModelSpec<NonZeroUsize>>>;
 
 /// A function mapping hyperparameter values to CV scores; each score being annotated with
 /// its standard error.
 pub type CvFunc<E> = VecPcwFn<E, Annotated<E, E>>;
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelFuncCore<E>(VecPcwFn<E, VecPcwFn<usize, SegmentModelSpec<NonZeroUsize>>>);
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SolutionCore<D, E> {
+    model_func: ModelFuncCore<E>,
+    cv_func: CvFunc<E>,
+    /// CV function downsampled to the jumps of the model function.
+    down_cv_func: CvFunc<E>,
+    /// Weights used in weighted regression
+    weights: Option<Array1<D>>,
+}
+
+impl<'a, D, E> From<ModelFunc<'a, D, E>> for ModelFuncCore<E> {
+    fn from(ModelFunc(f): ModelFunc<'a, D, E>) -> Self {
+        ModelFuncCore(f.fmap(|g| {
+            g.fmap(
+                |SegmentModelSpec {
+                     start_idx,
+                     stop_idx,
+                     model,
+                 }| SegmentModelSpec {
+                    start_idx,
+                    stop_idx,
+                    model: model.dof,
+                },
+            )
+        }))
+    }
+}
+
+impl<'a, D, E> From<Solution<'a, D, E>> for SolutionCore<D, E> {
+    fn from(
+        Solution {
+            model_func,
+            cv_func,
+            down_cv_func,
+            weights,
+        }: Solution<'a, D, E>,
+    ) -> Self {
+        SolutionCore {
+            model_func: ModelFuncCore::from(model_func),
+            cv_func,
+            down_cv_func,
+            weights,
+        }
+    }
+}
+
+impl<'a, D, E> From<&'a SolutionCore<D, E>> for Solution<'a, D, E>
+where
+    D: Clone,
+    E: Clone,
+{
+    fn from(
+        SolutionCore {
+            model_func,
+            cv_func,
+            down_cv_func,
+            weights,
+        }: &'a SolutionCore<D, E>,
+    ) -> Self {
+        Solution {
+            model_func: ModelFunc(model_func.0.fmap_ref(|idxs_to_models| {
+                idxs_to_models.fmap_ref(
+                    |SegmentModelSpec {
+                         start_idx,
+                         stop_idx,
+                         model,
+                     }| SegmentModelSpec {
+                        start_idx: *start_idx,
+                        stop_idx: *stop_idx,
+                        model: PolynomialArgs {
+                            dof: *model,
+                            weights: weights
+                                .as_ref()
+                                .map(|w| w.slice(s![*start_idx..=*stop_idx])),
+                        },
+                    },
+                )
+            })),
+            cv_func: cv_func.clone(),
+            down_cv_func: down_cv_func.clone(),
+            weights: weights.clone(),
+        }
+    }
+}
 
 /// A model for a timeseries and its CV score.
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -458,13 +559,15 @@ where
 /// A solution of the optimization problem providing an interface to find the globally
 /// minimizing model of the CV score, the OSE optimal model and to investigate the CV and
 /// model functions.
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Solution<'a, D, E> {
     model_func: ModelFunc<'a, D, E>,
     cv_func: CvFunc<E>,
     /// CV function downsampled to the jumps of the model function.
     down_cv_func: CvFunc<E>,
+    /// Weights used in weighted regression
+    weights: Option<Array1<D>>,
 }
 
 impl<'a, D, E> Solution<'a, D, E>
@@ -490,7 +593,7 @@ where
         let cv_down =
             cv_func
                 .clone()
-                .resample_to::<VecPcwFn<_, _>, _>(model_func.clone(), |a, b| {
+                .resample_to::<VecPcwFn<_, _>, _>(model_func.0.clone(), |a, b| {
                     if a.data <= b.data {
                         a
                     } else {
@@ -502,6 +605,7 @@ where
             model_func,
             cv_func,
             down_cv_func: cv_down,
+            weights: approx.model().weights.clone(),
         })
     }
 

@@ -1,7 +1,6 @@
 //! Python API for the `pcw_regrs` Rust crate. Please see the corresponding
 //! documentation for more detailed information on the Rust internals.
 
-use std::num::NonZeroUsize;
 #[cfg(feature = "show_times")]
 use std::time::Instant;
 
@@ -13,6 +12,8 @@ use derive_new::new;
 use numpy::{PyArray1, PyReadonlyArray1};
 use ordered_float::OrderedFloat;
 use pyo3::{exceptions::PyRuntimeError, prelude::*, types::PyBytes};
+
+#[cfg(feature = "serde")]
 use serde::{de, ser::SerializeStruct, Deserialize, Serialize};
 
 type Float = f64;
@@ -34,32 +35,43 @@ fn pyarray_to_solution(
 */
 
 #[pyfunction]
-// #[args(max_total_dof = "None", max_seg_dof = "None")]
+// #[args(max_total_dof = "None", max_seg_dof = "None", weights = "None")]
 pub fn fit_pcw_poly(
     sample_times: PyReadonlyArray1<Float>,
     response_values: PyReadonlyArray1<Float>,
     max_total_dof: Option<usize>,
     max_seg_dof: Option<usize>,
+    weights: Option<PyReadonlyArray1<Float>>,
 ) -> Solution {
     rs::fit_pcw_poly_primitive(
         sample_times.as_slice().unwrap(),
         response_values.as_slice().unwrap(),
         max_total_dof,
         max_seg_dof,
+        weights.as_ref().map(|w| w.as_slice().unwrap()),
     )
     .map(Solution::from_rs)
     .unwrap()
 }
 
 #[pyclass]
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Solution {
-    sol: Option<rs::Solution<OrderedFloat<Float>>>,
+    sol: Option<rs::SolutionCore<OrderedFloat<Float>, OrderedFloat<Float>>>,
 }
 
 impl Solution {
-    pub fn from_rs(sol: rs::Solution<OrderedFloat<Float>>) -> Self {
-        Self { sol: Some(sol) }
+    pub fn from_rs(sol: rs::Solution<'static, OrderedFloat<Float>, OrderedFloat<Float>>) -> Self {
+        Self {
+            sol: Some(rs::SolutionCore::from(sol)),
+        }
+    }
+}
+
+impl Solution {
+    fn sol<'a>(&'a self) -> Option<rs::Solution<'a, OrderedFloat<Float>, OrderedFloat<Float>>> {
+        self.sol.as_ref().map(rs::Solution::from)
     }
 }
 
@@ -70,12 +82,14 @@ impl Solution {
         Self { sol: None }
     }
 
+    #[cfg(feature = "serde")]
     pub fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<&'py PyBytes> {
         // Used in pickle/pickling
         let s = serde_json::to_string(&self).unwrap();
         Ok(PyBytes::new(py, s.as_bytes()))
     }
 
+    #[cfg(feature = "serde")]
     pub fn __setstate__(&mut self, py: Python, state: PyObject) -> PyResult<()> {
         // Used in pickle/pickling
         match state.extract::<&PyBytes>(py) {
@@ -90,15 +104,19 @@ impl Solution {
 
     /// Return the best model w.r.t. the "one standard error" rule.
     pub fn ose_best(&self) -> PyResult<ScoredPolyModel> {
-        match &self.sol {
+        match self.sol() {
             None => Err(PyRuntimeError::new_err("Internal error.")),
-            Some(sol) => Ok(ScoredPolyModel::from_rs(sol.ose_best().unwrap())),
+            Some(sol) => {
+                let ose = sol.ose_best().unwrap();
+                let scored_model = ScoredPolyModel::from_rs(ose);
+                Ok(scored_model)
+            }
         }
     }
 
     /// Return the global minimizer of the CV score.
     pub fn cv_minimizer(&self) -> PyResult<ScoredPolyModel> {
-        match &self.sol {
+        match self.sol() {
             None => Err(PyRuntimeError::new_err("Internal error.")),
             Some(sol) => Ok(ScoredPolyModel::from_rs(sol.cv_minimizer().unwrap())),
         }
@@ -106,7 +124,7 @@ impl Solution {
 
     /// Return the models corresponding to the `n_best` lowest CV scores.
     pub fn n_cv_minimizers(&self, n_best: usize) -> PyResult<Vec<ScoredPolyModel>> {
-        match &self.sol {
+        match self.sol() {
             None => Err(PyRuntimeError::new_err("Internal error.")),
             Some(sol) => Ok(sol
                 .n_cv_minimizers(n_best)
@@ -117,7 +135,7 @@ impl Solution {
 
     /// The cross validation function mapping hyperparameters γ to CV scores.
     pub fn cv_func(&self) -> PyResult<PcwConstFn> {
-        match &self.sol {
+        match self.sol() {
             None => Err(PyRuntimeError::new_err("Internal error.")),
             Some(sol) => Ok(PcwConstFn::from_rs(
                 sol.cv_func().fmap_ref(|cv_se| cv_se.data),
@@ -128,7 +146,7 @@ impl Solution {
     /// The cross validation function mapping hyperparameters γ to the standard errors
     /// of the CV scores.
     pub fn cv_se_func(&self) -> PyResult<PcwConstFn> {
-        match &self.sol {
+        match self.sol() {
             None => Err(PyRuntimeError::new_err("Internal error.")),
             Some(sol) => Ok(PcwConstFn::from_rs(
                 sol.cv_func().fmap_ref(|cv_se| cv_se.metadata),
@@ -138,7 +156,7 @@ impl Solution {
 
     /// The cross validation function downsampled to the jumps of the model function.
     pub fn downsampled_cv_func(&self) -> PyResult<PcwConstFn> {
-        match &self.sol {
+        match self.sol() {
             None => Err(PyRuntimeError::new_err("Internal error.")),
             Some(sol) => Ok(PcwConstFn::from_rs(
                 sol.downsampled_cv_func().fmap_ref(|cv_se| cv_se.data),
@@ -148,7 +166,7 @@ impl Solution {
 
     /// The cross validation standard error function downsampled to the jumps of the model function.
     pub fn downsampled_cv_se_func(&self) -> PyResult<PcwConstFn> {
-        match &self.sol {
+        match self.sol() {
             None => Err(PyRuntimeError::new_err("Internal error.")),
             Some(sol) => Ok(PcwConstFn::from_rs(
                 sol.downsampled_cv_func().fmap_ref(|cv_se| cv_se.metadata),
@@ -164,7 +182,8 @@ impl Solution {
 }
 
 #[pyclass]
-#[derive(Serialize, Deserialize, Debug, Clone)]
+// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 pub struct PolyModelSpec {
     #[pyo3(get)]
     start_idx: usize,
@@ -175,17 +194,25 @@ pub struct PolyModelSpec {
 }
 
 impl PolyModelSpec {
-    pub fn from_rs(sm: pcw_regrs::SegmentModelSpec<NonZeroUsize>) -> Self {
+    // pub fn from_rs(sm: pcw_regrs::SegmentModelSpec<NonZeroUsize>) -> Self {
+    //     PolyModelSpec {
+    //         start_idx: sm.start_idx,
+    //         stop_idx: sm.stop_idx,
+    //         degrees_of_freedom: usize::from(sm.model),
+    //     }
+    // }
+    pub fn from_rs<'a, R>(sm: pcw_regrs::SegmentModelSpec<rs::PolynomialArgs<'a, R>>) -> Self {
         PolyModelSpec {
             start_idx: sm.start_idx,
             stop_idx: sm.stop_idx,
-            degrees_of_freedom: usize::from(sm.model),
+            degrees_of_freedom: usize::from(sm.model.dof),
         }
     }
 }
 
 #[pyclass]
-#[derive(Serialize, Deserialize, Debug, Clone)]
+// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 pub struct ScoredPolyModel {
     #[pyo3(get)]
     pub cv_score: Float,
@@ -216,6 +243,7 @@ pub struct PcwConstFn {
     pub values: Py<PyArray1<Float>>,
 }
 
+#[cfg(feature = "serde")]
 impl Serialize for PcwConstFn {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -233,9 +261,11 @@ impl Serialize for PcwConstFn {
     }
 }
 
+#[cfg(feature = "serde")]
 #[derive(new)]
 struct PcwConstVisitor {}
 
+#[cfg(feature = "serde")]
 impl<'de> de::Visitor<'de> for PcwConstVisitor {
     type Value = PcwConstFn;
 
@@ -277,6 +307,7 @@ impl<'de> de::Visitor<'de> for PcwConstVisitor {
     }
 }
 
+#[cfg(feature = "serde")]
 impl<'de> de::Deserialize<'de> for PcwConstFn {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

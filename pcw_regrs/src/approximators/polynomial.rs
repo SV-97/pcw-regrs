@@ -1,8 +1,9 @@
 //! Implementation of the interfaces for (piecewise) constant approximators.
 use derive_new::new;
-
 use ndarray::{s, Array1, Array2, ArrayView1};
 use num_traits::{real::Real, Signed};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 use std::{fmt::Debug, iter::Sum, num::NonZeroUsize};
 
@@ -87,6 +88,7 @@ where
     // }
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(new, Debug, Eq, PartialEq, Clone)]
 pub struct PcwPolynomialArgs<TimeData> {
     /// Maximal degrees of freedom of polynomials considered
@@ -233,7 +235,7 @@ where
                 segment_stop_idx,
                 PolynomialArgs {
                     dof,
-                    weights: Some(w.slice(s![..w.len() - 1])),
+                    weights: Some(w.slice(s![..w.len()])),
                 },
             ),
             None => self.approximation_on_segment(

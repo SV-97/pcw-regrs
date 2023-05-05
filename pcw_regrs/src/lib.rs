@@ -186,18 +186,19 @@ mod approximators;
 pub mod solve_jump;
 mod stack;
 
+use approximators::PolynomialApproximator;
 pub use approximators::SegmentModelSpec;
 pub use approximators::{
-    PcwApproximator, PcwPolynomialApproximator, TimeSeries, /* PcwConstantApproximator */
+    PcwApproximator, PcwPolynomialApproximator, PcwPolynomialArgs, PolynomialArgs,
+    TimeSeries, /* PcwConstantApproximator */
 };
-use approximators::{PcwPolynomialArgs, PolynomialApproximator};
 use itertools::Itertools;
 use ndarray::Array1;
 use num_traits::{real::Real, Bounded, Float, FromPrimitive, Signed};
 use ordered_float::{NotNan, OrderedFloat};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-pub use solve_jump::dof::{ScoredModel, Solution};
+pub use solve_jump::dof::{ScoredModel, Solution, SolutionCore};
 use std::{iter::Sum, num::NonZeroUsize, ops::AddAssign};
 use thiserror::Error;
 
@@ -274,6 +275,7 @@ pub fn fit_pcw_poly_primitive<'a, R>(
     response: &[R],
     max_total_dof: Option<usize>,
     max_seg_dof: Option<usize>,
+    weights: Option<&[R]>,
 ) -> Result<Solution<'a, OrderedFloat<R>, OrderedFloat<R>>, PolyFitError>
 where
     R: PrimitiveFloat
@@ -303,12 +305,23 @@ where
         .into_iter()
         .map(|x| OrderedFloat(x.into_inner()))
         .collect_vec();
+    let weights_nn = weights
+        .map(|w| {
+            Ok(w.iter()
+                .map(|x| -> Option<_> { NotNan::new(*x).ok() })
+                .collect::<Option<Vec<_>>>()
+                .ok_or(PolyFitError::NanInResponses)?
+                .into_iter()
+                .map(|x| OrderedFloat(x.into_inner()))
+                .collect_vec())
+        })
+        .transpose()?;
     fit_pcw_poly(
         &times_nn,
         &response_nn,
         max_total_dof.map(|n| NonZeroUsize::new(n).unwrap()),
         max_seg_dof.map(|dof| NonZeroUsize::new(dof).unwrap()),
-        None,
+        weights_nn.as_deref(),
     )
     // TODO: propagate the specific error from a lower level rather than using options along the way.
     .ok_or(PolyFitError::EmptyData)

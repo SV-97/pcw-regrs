@@ -27,16 +27,21 @@ def continuity_opt_jumps(polys: List[np.polynomial.Polynomial], jump_idxs, sampl
     return jumps
 
 
-def model_params_to_poly(ts: np.ndarray, ys: np.ndarray, model_params: _rs.PolyModelSpec) -> np.polynomial.Polynomial:
+def model_params_to_poly(ts: np.ndarray, ys: np.ndarray, model_params: _rs.PolyModelSpec, weights: Optional[np.ndarray] = None) -> np.polynomial.Polynomial:
     """Turn the basic model parameters for a segment of data into a numpy polynomial."""
     deg = model_params.degrees_of_freedom - 1
+    seg_weights = None if weights is None else weights[
+        model_params.start_idx: model_params.stop_idx + 1]
     if deg == 0:
-        return np.polynomial.Polynomial((np.mean(ys[model_params.start_idx: model_params.stop_idx + 1]), ), window=np.array([-1., 1.]), domain=np.array([-1., 1.]))
+        # np.mean(ys[model_params.start_idx: model_params.stop_idx + 1])
+        weighted_mean = np.ma.average(
+            ys[model_params.start_idx: model_params.stop_idx + 1], weights=seg_weights)
+        return np.polynomial.Polynomial((weighted_mean, ), window=np.array([-1., 1.]), domain=np.array([-1., 1.]))
     else:
         return np.polynomial.Polynomial.fit(
             ts[model_params.start_idx: model_params.stop_idx + 1],
             ys[model_params.start_idx: model_params.stop_idx + 1],
-            deg=deg, domain=np.array([-1., 1.]))
+            deg=deg, domain=np.array([-1., 1.]), w=seg_weights)
 
 
 class TimeSeriesSample(NamedTuple):
@@ -73,17 +78,18 @@ class PcwFn():
 class PcwPolynomial(PcwFn):
     funcs: List[np.polynomial.Polynomial]
     jumps: npt.NDArray[np.float64]
-    _cut_idxs: npt.NDArray[int] = None
+    _cut_idxs: Optional[npt.NDArray[np.int64]] = None
 
     @classmethod
     def from_data_and_model(
         Self,
         timeseries: TimeSeriesSample,
         model: _rs.ScoredPolyModel,
-        jump_locator=JumpLocator.CONTINUITY_OPTIMIZED
+        jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
+        weights: npt.NDArray[np.float64] = None,
     ) -> "PcwPolynomial":
         funcs = [model_params_to_poly(
-            timeseries.sample_times, timeseries.values, seg_model) for seg_model in model.model_params]
+            timeseries.sample_times, timeseries.values, seg_model, weights) for seg_model in model.model_params]
         match jump_locator:
             case JumpLocator.CONTINUITY_OPTIMIZED:
                 jumps = continuity_opt_jumps(
@@ -101,6 +107,7 @@ class PcwPolynomial(PcwFn):
         max_segment_degree: Optional[Integral] = 15,
         max_total_dof: Optional[Integral] = None,
         n_best: Integral = 1,
+        weights: npt.NDArray[np.float64] = None,
     ) -> List["PcwPolynomial"]:
         """Fit the n models with the n lowest CV scores."""
         models = _rs.fit_pcw_poly(
@@ -108,8 +115,9 @@ class PcwPolynomial(PcwFn):
             timeseries.values,
             max_total_dof,
             max_segment_degree + 1 if max_segment_degree is not None else None,
+            weights,
         ).n_cv_minimizers(n_best)
-        return [Self.from_data_and_model(timeseries, model, jump_locator) for model in models]
+        return [Self.from_data_and_model(timeseries, model, jump_locator, weights) for model in models]
 
     @classmethod
     def fit_ose(
@@ -118,6 +126,7 @@ class PcwPolynomial(PcwFn):
         jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
         max_segment_degree: Optional[Integral] = None,
         max_total_dof: Optional[Integral] = None,
+        weights: npt.NDArray[np.float64] = None,
     ) -> "PcwPolynomial":
         """Fit the best model with respect to the one standard error rule."""
         model = _rs.fit_pcw_poly(
@@ -125,8 +134,9 @@ class PcwPolynomial(PcwFn):
             timeseries.values,
             max_total_dof,
             max_segment_degree + 1 if max_segment_degree is not None else None,
+            weights,
         ).ose_best()
-        return Self.from_data_and_model(timeseries, model, jump_locator)
+        return Self.from_data_and_model(timeseries, model, jump_locator, weights)
 
     def __str__(self):
         body = (r") \\" "\n    ").join(f"{str(poly)} & x \\in [{poly.domain[0]}, {poly.domain[1]}"

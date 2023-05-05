@@ -17,8 +17,8 @@ num-traits = "0.2.15"
 ordered-float = "3.2.0"
 derive-new = "0.5"
 maybe-owned = "0.3.4"
-ndarray = "0.15.6"
-polyfit-residuals = { version = "0.6.0", features = ["parallel_rayon"] }
+ndarray = { version = "0.15.6", features = ["serde"] }
+polyfit-residuals = { version = "0.6.1", features = ["parallel_rayon"] }
 pcw_fn = { version = "0.2.1", features = ["serde"] }
 serde = { version = "1.0.152", features = ["derive"], optional = true }
 thiserror = "1.0.38"
@@ -38,3 +38,4 @@ harness = false
 [features]
 serde = ["dep:serde"]
 nightly-only = ["polyfit-residuals/nightly-only"]
+default = ["serde"]
