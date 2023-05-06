@@ -37,3 +37,4 @@ default = ["serde"]
 # where tₗ,tᵣ are the left and right boundaries of a subinterval, T the
 # total time interval length and n the number of samples on that interval. 
 alternate_penalty = ["pcw_regrs/alternate_penalty"]
+parallel_rayon = ["pcw_regrs/parallel_rayon"]

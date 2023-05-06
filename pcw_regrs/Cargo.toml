@@ -18,7 +18,7 @@ ordered-float = "3.2.0"
 derive-new = "0.5"
 maybe-owned = "0.3.4"
 ndarray = { version = "0.15.6", features = ["serde"] }
-polyfit-residuals = { version = "0.6.1", features = ["parallel_rayon"] }
+polyfit-residuals = { version = "0.6.1" }
 pcw_fn = { version = "0.2.1", features = ["serde"] }
 serde = { version = "1.0.152", features = ["derive"], optional = true }
 thiserror = "1.0.38"
@@ -43,3 +43,4 @@ default = ["serde"]
 # where tₗ,tᵣ are the left and right boundaries of a subinterval, T the
 # total time interval length and n the number of samples on that interval. 
 alternate_penalty = []
+parallel_rayon = ["polyfit-residuals/parallel_rayon"]

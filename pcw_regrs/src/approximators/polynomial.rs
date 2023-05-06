@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use std::{fmt::Debug, iter::Sum, num::NonZeroUsize};
 
-// use pcw_fn::PcwFn;
 use polyfit_residuals::{
-    all_residuals_par, poly::OwnedNewtonPolynomial, try_fit_poly_with_residual, weighted, PolyFit,
+    all_residuals, all_residuals_par, poly::OwnedNewtonPolynomial, try_fit_poly_with_residual,
+    weighted, PolyFit,
 };
 
 use crate::euclid_sq_metric;
@@ -148,8 +148,20 @@ where
         let max_degree = max_seg_dof.map(usize::from).unwrap_or(timeseries.len()) + 1;
         // TODO: add feature to switch on off parallelization here
         let residuals = match &weights {
-            Some(weights) => weighted::all_residuals_par(xs, ys, max_degree, weights),
-            None => all_residuals_par(xs, ys, max_degree),
+            Some(weights) => {
+                if cfg!(feature = "parallel_rayon") {
+                    weighted::all_residuals_par(xs, ys, max_degree, weights)
+                } else {
+                    weighted::all_residuals(xs, ys, max_degree, weights)
+                }
+            }
+            None => {
+                if cfg!(feature = "parallel_rayon") {
+                    all_residuals_par(xs, ys, max_degree)
+                } else {
+                    all_residuals(xs, ys, max_degree)
+                }
+            }
         };
         let residuals = if cfg!(feature = "alternate_penalty") {
             let total_time = xs[xs.len() - 1] - xs[0];
