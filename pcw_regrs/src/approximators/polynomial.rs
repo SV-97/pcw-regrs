@@ -147,7 +147,7 @@ where
         let ys = ArrayView1::from_shape(timeseries.len(), timeseries.data()).unwrap();
         let max_degree = max_seg_dof.map(usize::from).unwrap_or(timeseries.len()) + 1;
         // TODO: add feature to switch on off parallelization here
-        let residuals = match &weights {
+        let mut residuals = match &weights {
             Some(weights) => {
                 if cfg!(feature = "parallel_rayon") {
                     weighted::all_residuals_par(xs, ys, max_degree, weights)
@@ -165,27 +165,23 @@ where
         };
         let residuals = if cfg!(feature = "alternate_penalty") {
             let total_time = xs[xs.len() - 1] - xs[0];
+            for (seg_start_idx, arr) in residuals.iter_mut().enumerate() {
+                for rel_seg_end_idx in 0..arr.shape()[0] {
+                    let time_l = xs[seg_start_idx];
+                    let time_r = xs[seg_start_idx + rel_seg_end_idx];
+                    let t = (time_r - time_l) / total_time;
+                    let correction_factor = (t - t.log2());
+                    // / TimeData::from(rel_seg_end_idx + 1).unwrap();
+                    // maybe_debug::maybe_dbg!(&(
+                    //     correction_factor,
+                    //     seg_start_idx,
+                    //     seg_start_idx + rel_seg_end_idx
+                    // ));
+                    arr.slice_mut(s![rel_seg_end_idx, ..])
+                        .map_inplace(|x: &mut TimeData| *x = *x * correction_factor);
+                }
+            }
             residuals
-                .into_iter()
-                .enumerate()
-                .map(|(seg_start_idx, mut arr)| {
-                    for rel_seg_end_idx in 0..arr.shape()[0] {
-                        let time_l = xs[seg_start_idx];
-                        let time_r = xs[seg_start_idx + rel_seg_end_idx];
-                        let t = (time_r - time_l) / total_time;
-                        let correction_factor = (t - t.log2());
-                        // / TimeData::from(rel_seg_end_idx + 1).unwrap();
-                        // maybe_debug::maybe_dbg!(&(
-                        //     correction_factor,
-                        //     seg_start_idx,
-                        //     seg_start_idx + rel_seg_end_idx
-                        // ));
-                        arr.slice_mut(s![rel_seg_end_idx, ..])
-                            .map_inplace(|x: &mut TimeData| *x = *x * correction_factor);
-                    }
-                    arr
-                })
-                .collect()
         } else {
             residuals
         };
