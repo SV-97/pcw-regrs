@@ -170,7 +170,7 @@ where
                     let time_l = xs[seg_start_idx];
                     let time_r = xs[seg_start_idx + rel_seg_end_idx];
                     let t = (time_r - time_l) / total_time;
-                    let correction_factor = (t - t.log2());
+                    let correction_factor = t - t.log2();
                     // / TimeData::from(rel_seg_end_idx + 1).unwrap();
                     // maybe_debug::maybe_dbg!(&(
                     //     correction_factor,

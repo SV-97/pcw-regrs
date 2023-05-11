@@ -71,7 +71,7 @@ where
 
         // `data_len - 1` without `..=` since we wanna calculate cross validation scores for
         // prediction into the future which isn't possible for the last data point.
-        for rb in 0..data_len - 1 {
+        for rb in 0..data_len - crate::CV_PREDICTION_COUNT {
             let max_total_seg_dofs = {
                 // Safety: rb starts at 0 such that rb+1 is nonzero. Furthermore we're only going up to
                 // data_len - 1 <= usize::MAX such that there can be no overflows in the rb+1.

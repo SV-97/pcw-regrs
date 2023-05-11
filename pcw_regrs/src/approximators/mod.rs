@@ -1,10 +1,11 @@
 //! The general abstract interfaces used by the solver as well as some concrete implementations.
 use is_sorted::IsSorted;
 use itertools::Itertools;
-use num_traits::FromPrimitive;
+use num_traits::{FromPrimitive, Zero};
 use pcw_fn::{PcwFn, VecPcwFn};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use std::iter::Sum;
 use std::num::NonZeroUsize;
 use std::{marker::PhantomData, ops::Index};
 
@@ -280,13 +281,20 @@ where
         segment_stop_idx: usize,
         segment_model: SegmentApprox::Model<'a>,
         mut metric: impl FnMut(&Data, &Data) -> Error,
-    ) -> Error {
-        metric(
-            &self
-                .approximation_on_segment(segment_start_idx, segment_stop_idx, segment_model)
-                .prediction(self.time_at(segment_stop_idx + 1)),
-            self.data_at(segment_stop_idx + 1),
-        )
+    ) -> Error
+    where
+        Error: Zero + Sum,
+    {
+        let approx =
+            self.approximation_on_segment(segment_start_idx, segment_stop_idx, segment_model);
+        (1..=crate::CV_PREDICTION_COUNT)
+            .map(|step| {
+                metric(
+                    &approx.prediction(self.time_at(segment_stop_idx + step)),
+                    self.data_at(segment_stop_idx + step),
+                )
+            })
+            .sum()
     }
 
     /// The underlying "hypermodel" used when constructing this approximator.

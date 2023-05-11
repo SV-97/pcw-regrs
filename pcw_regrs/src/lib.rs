@@ -202,6 +202,9 @@ pub use solve_jump::dof::{ScoredModel, Solution, SolutionCore};
 use std::{iter::Sum, num::NonZeroUsize, ops::AddAssign};
 use thiserror::Error;
 
+/// How many "steps into the future" we predict during cross validation
+const CV_PREDICTION_COUNT: usize = 1;
+
 /// A piecewise polynomial model for a timeseries and its cv score.
 pub type ScoredPolyModel<'a, R> = ScoredModel<'a, R, R, R, PolynomialApproximator<R, R>>;
 
