@@ -1,0 +1,101 @@
+explain: |md
+  # General
+  * Metric is fixed as euclidean squared metric for efficiency in regression residuals
+
+| {width: 20}
+
+metric: Metric
+res: Residual error calculation
+timeseries: Timeseries sample {
+  times: Sample times
+  values: Sample values
+}
+metric -> res
+
+alg_params: Algorithm parameters {
+  max_total_dof: Maximum total degrees of freedom
+  max_seg_dof: Maximum segment / local degrees of freedom
+}
+
+alg_params -> fit_pcw_poly
+timeseries -> fit_pcw_poly
+metric -> fit_pcw_poly
+fit_pcw_poly: {
+  explain: |md
+    # Explanation
+
+    1. Calculate CV scores and corresponding minimizing models for all penalties
+    2. Min-downsample CV function onto model function
+    3. Profit! :) At this point the central data are computed and most of the hard work is over. We can then use this data 
+  |
+  code: ||rs
+    let (cv_func, model_func) = cv_scores_and_models(max_total_dof, approx, metric)?;
+    // resample the cv score function to the model function; folding intervals with a minimum
+    // so if there's an interval on which the models are constant the CV score we associate to
+    // this interval is the minimal one of any penalty on it.
+    let cv_down =
+        cv_func
+            .clone()
+            .resample_to::<VecPcwFn<_, _>, _>(model_func.clone(), |a, b| {
+                if a.data <= b.data {
+                    a
+                } else {
+                    b
+                }
+            });
+
+    Some(Self {
+        model_func,
+        cv_func,
+        down_cv_func: cv_down,
+    })
+  ||
+
+  Calculate CV scores and models: {
+    explain: |md
+      1. Solve DP
+      2. 
+    |
+    max_total_dof -> dp
+    max_seg_dof -> dp
+    distances -> dp
+    dp: Solve DP
+    dp -> optimal_jump_data: calculates
+    optimal_jump_data: Optimal jump data
+  }
+}
+fit_pcw_poly -> result
+
+result: Result {
+  ose_best: ||rs
+    /// Return the best model w.r.t. the "one standard error" rule.
+    pub fn ose_best<T, D, S>(&self) -> Option<OseBestModel<T, D, E, S>>
+    where
+        S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
+    {
+        ...
+    }
+  ||
+
+  n_cv_minimizer: ||rs
+    /// Return the models corresponding to the `n_best` lowest CV scores.
+    pub fn n_cv_minimizers<T, D, S>(
+        &self,
+        n_best: usize,
+    ) -> Option<Vec<CvMinimizerModel<T, D, E, S>>>
+    where
+        S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
+        E: Bounded
+            + Send
+            + Sync
+            + Real
+            + Ord
+            + FromPrimitive
+            + Default
+            + AddAssign
+            + std::iter::Sum,
+    {
+        ...
+    }
+  ||
+}
