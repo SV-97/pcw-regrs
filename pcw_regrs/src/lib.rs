@@ -294,52 +294,43 @@ mod tests {
             let pc = arr2(&[
                 [
                     None,
-                    Some(CutPath {
-                        remaining_dofs: 0,
-                        elem_after_prev_cut: 0,
-                    }),
-                    Some(CutPath {
-                        remaining_dofs: 0,
-                        elem_after_prev_cut: 0,
-                    }),
-                    Some(CutPath {
-                        remaining_dofs: 1,
+                    Some(CutPath::NoCuts),
+                    Some(CutPath::NoCuts),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
                         elem_after_prev_cut: 3,
                     }),
-                    Some(CutPath {
-                        remaining_dofs: 1,
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
                         elem_after_prev_cut: 3,
                     }),
-                    Some(CutPath {
-                        remaining_dofs: 1,
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
                         elem_after_prev_cut: 3,
                     }),
-                    Some(CutPath {
-                        remaining_dofs: 1,
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
                         elem_after_prev_cut: 6,
                     }),
                 ],
                 [
                     None,
                     None,
-                    Some(CutPath {
-                        remaining_dofs: 0,
-                        elem_after_prev_cut: 0,
-                    }),
-                    Some(CutPath {
-                        remaining_dofs: 2,
+                    Some(CutPath::NoCuts),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(2),
                         elem_after_prev_cut: 3,
                     }),
-                    Some(CutPath {
-                        remaining_dofs: 2,
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(2),
                         elem_after_prev_cut: 4,
                     }),
-                    Some(CutPath {
-                        remaining_dofs: 1,
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
                         elem_after_prev_cut: 3,
                     }),
-                    Some(CutPath {
-                        remaining_dofs: 1,
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
                         elem_after_prev_cut: 3,
                     }),
                 ],
@@ -347,20 +338,17 @@ mod tests {
                     None,
                     None,
                     None,
-                    Some(CutPath {
-                        remaining_dofs: 0,
-                        elem_after_prev_cut: 0,
-                    }),
-                    Some(CutPath {
-                        remaining_dofs: 3,
+                    Some(CutPath::NoCuts),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(3),
                         elem_after_prev_cut: 4,
                     }),
-                    Some(CutPath {
-                        remaining_dofs: 2,
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(2),
                         elem_after_prev_cut: 3,
                     }),
-                    Some(CutPath {
-                        remaining_dofs: 1,
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
                         elem_after_prev_cut: 3,
                     }),
                 ],
@@ -369,16 +357,13 @@ mod tests {
                     None,
                     None,
                     None,
-                    Some(CutPath {
-                        remaining_dofs: 0,
-                        elem_after_prev_cut: 0,
-                    }),
-                    Some(CutPath {
-                        remaining_dofs: 4,
+                    Some(CutPath::NoCuts),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(4),
                         elem_after_prev_cut: 5,
                     }),
-                    Some(CutPath {
-                        remaining_dofs: 2,
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(2),
                         elem_after_prev_cut: 3,
                     }),
                 ],
@@ -388,27 +373,13 @@ mod tests {
                     None,
                     None,
                     None,
-                    Some(CutPath {
-                        remaining_dofs: 0,
-                        elem_after_prev_cut: 0,
-                    }),
-                    Some(CutPath {
-                        remaining_dofs: 3,
+                    Some(CutPath::NoCuts),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(3),
                         elem_after_prev_cut: 3,
                     }),
                 ],
-                [
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(CutPath {
-                        remaining_dofs: 0,
-                        elem_after_prev_cut: 0,
-                    }),
-                ],
+                [None, None, None, None, None, None, Some(CutPath::NoCuts)],
             ]);
 
             // One of these is computed using the old code. We verify against this

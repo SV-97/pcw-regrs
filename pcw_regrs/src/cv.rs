@@ -64,7 +64,7 @@ pub fn cv_scores_and_models(
             // let stats = partial_cvs.try_simple_statistics().unwrap();
             // let model_error = stats.sum;
             Annotated::new(
-                AffineFunction::new(OFloat::from_usize(n_dofs).unwrap(), model_error), // TODO: is this correct or do we want n_dofs?
+                AffineFunction::new(OFloat::from_usize(n_dofs).unwrap(), model_error),
                 // TODO: I don't think the model here doesn't actually have to be an `Option`.
                 // Find out why it is and remove it if it's really not needed. It might be due to the pointwise minimization later on requiring a Default.
                 Some(model),

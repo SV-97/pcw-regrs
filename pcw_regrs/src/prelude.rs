@@ -38,13 +38,27 @@ impl TryFrom<usize> for DegreeOfFreedom {
 }
 
 impl DegreeOfFreedom {
-    pub fn one() -> Self {
+    pub const fn new(n: usize) -> Self {
+        if n == 0 {
+            panic!("Degrees of freedom can't be 0")
+        } else {
+            DegreeOfFreedom(unsafe { NonZeroUsize::new_unchecked(n) })
+        }
+    }
+
+    pub const fn one() -> Self {
         unsafe { DegreeOfFreedom(NonZeroUsize::new_unchecked(1)) }
     }
 
     /// Convert self to a polynomial degree
     pub fn to_deg(self) -> usize {
         usize::from(self.0) - 1
+    }
+
+    pub fn checked_sub(self, rhs: Self) -> Option<Self> {
+        usize::from(self)
+            .checked_sub(rhs.into())
+            .and_then(|x| Self::try_from(x).ok())
     }
 }
 
@@ -223,6 +237,6 @@ pub fn euclid_sq_metric<T: Real>(x: &T, y: &T) -> T {
 #[macro_export]
 macro_rules! dof {
     ($n: expr) => {
-        $crate::prelude::DegreeOfFreedom::try_from($n).unwrap()
+        $crate::prelude::DegreeOfFreedom::new($n)
     };
 }

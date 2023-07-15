@@ -4,6 +4,7 @@
 use std::{cmp, mem::MaybeUninit};
 
 use crate::{
+    dof,
     prelude::*,
     stack::{HeapStack, Stack},
 };
@@ -11,14 +12,16 @@ use crate::{
 use ndarray::{s, Array2, ArrayView2};
 
 /// A single "cut" of the partition given by reference data for which cut should come before it.
-// TODO: Make this into an enum with either "some cuts" or "no cuts".
-// Note that this is essentially a linked list through some indirection.
+// Note that this is essentially a linked list through some indirection given by the DP solution.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct CutPath {
-    /// How many degrees of freedom may still be expended; note that this might be 0
-    pub remaining_dofs: usize,
-    /// The index of the data point after the cut
-    pub elem_after_prev_cut: usize,
+pub enum CutPath {
+    SomeCuts {
+        /// How many degrees of freedom may still be expended
+        remaining_dofs: DegreeOfFreedom,
+        /// The index of the data point after the cut
+        elem_after_prev_cut: usize,
+    },
+    NoCuts,
 }
 
 /// Represents a solution of the key dynamic program.
@@ -113,9 +116,13 @@ impl OptimalJumpData {
                 energies[[k_dof_plus_one - 1, r + 1]] = Some(min_energy);
                 prev_cuts[[k_dof_plus_one - 2, r + 1]] = {
                     let (l_min, p_l_min) = arg_min;
-                    Some(CutPath {
-                        remaining_dofs: p_l_min,
-                        elem_after_prev_cut: (l_min + 1) as usize,
+                    Some(if p_l_min == 0 {
+                        CutPath::NoCuts
+                    } else {
+                        CutPath::SomeCuts {
+                            remaining_dofs: DegreeOfFreedom::try_from(p_l_min).unwrap(),
+                            elem_after_prev_cut: (l_min + 1) as usize,
+                        }
                     })
                 };
             }
@@ -280,8 +287,9 @@ impl OptimalJumpData {
             // TODO: might have to tweak the condition for higher polynomial orders
             // Assuming init here is safe since we start out safe by initializing `cut_buf_end` and only ever increase the `cut_count`
             // if we've actually written into the buffer at the locations we're later reading from.
-            while remaining_dofs >= 2 && cut_buffer.top() != 0 {
-                if let Some(prev_cut_path) = self.prev_cuts[[remaining_dofs - 2, cut_buffer.top()]]
+            while remaining_dofs >= dof!(2) && cut_buffer.top() != 0 {
+                if let Some(prev_cut_path) =
+                    self.prev_cuts[[usize::from(remaining_dofs) - 2, cut_buffer.top()]]
                 {
                     // this unwrap can't fail
                     match try_cut_path_to_cut(prev_cut_path, remaining_dofs) {
@@ -317,12 +325,13 @@ impl OptimalJumpData {
         right_data_index: usize,
     ) -> Option<Cut> {
         match n_dofs.into() {
+            0 => unreachable!(),
             1 => None, // with one degree of freedom there's always just a single model - so no cuts
             n if n > right_data_index + 1 => {
                 panic!("Too many degrees of freedom for the given data interval")
             }
             n => self.prev_cuts[[n - 2, right_data_index]]
-                .and_then(|cut_path| try_cut_path_to_cut(cut_path, n)),
+                .and_then(|cut_path| try_cut_path_to_cut(cut_path, n_dofs)),
         }
     }
 }
@@ -364,24 +373,27 @@ impl<'a> From<&'a OwnedDofPartition> for RefDofPartition<'a> {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Cut {
     cut_idx: usize,
-    left_dofs: usize,
-    right_dofs: usize,
+    left_dofs: DegreeOfFreedom,
+    right_dofs: DegreeOfFreedom,
 }
 
 /// Try converting a [CutPath] to a [Cut] given some initial number of degrees of freedom.
 /// Returns `None` if the cut path indicates that there are no cuts.
-fn try_cut_path_to_cut(cut_path: CutPath, n_dofs: usize) -> Option<Cut> {
+fn try_cut_path_to_cut(cut_path: CutPath, n_dofs: DegreeOfFreedom) -> Option<Cut> {
     // A cut index of 0 here means that there is a cut in front of the very first data
     // point - this means there really are no cuts.
-    if cut_path.elem_after_prev_cut == 0 {
-        assert_eq!(cut_path.remaining_dofs, 0);
-        None
-    } else {
-        Some(Cut {
-            cut_idx: cut_path.elem_after_prev_cut - 1,
-            left_dofs: cut_path.remaining_dofs,
-            // subtract one dof for the cut itself
-            right_dofs: n_dofs - cut_path.remaining_dofs,
-        })
+    match cut_path {
+        CutPath::NoCuts => None,
+        CutPath::SomeCuts {
+            remaining_dofs,
+            elem_after_prev_cut,
+        } => {
+            Some(Cut {
+                cut_idx: elem_after_prev_cut - 1,
+                left_dofs: remaining_dofs,
+                // subtract one dof for the cut itself
+                right_dofs: n_dofs.checked_sub(remaining_dofs).unwrap(),
+            })
+        }
     }
 }
