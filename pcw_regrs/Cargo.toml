@@ -1,15 +1,28 @@
 [package]
 name = "pcw_regrs"
-version = "0.1.0"
+version = "1.4.0"
 edition = "2021"
+publish = false    # prevent accidental publishing
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[profile.release]
+lto = true
+codegen-units = 1
+
 [dependencies]
 derive-new = "0.5.9"
-ndarray = "0.15.6"
-ordered-float = "3.7.0"
-pcw_fn = "0.2.1"
-thiserror = "1.0.43"
+ndarray = { version = "0.15.6", features = ["serde"] }
+ordered-float = { version = "3.7.0", features = ["serde"] }
+pcw_fn = { version = "0.2.1", features = ["serde"] }
+thiserror = "1.0.40"
 polyfit-residuals = { version = "0.6.1", features = ["parallel_rayon"] }
 num-traits = "0.2.15"
+itertools = "0.11.0"
+serde = { version = "1.0.152", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde"]
+nightly-only = ["polyfit-residuals/nightly-only"]
+default = ["serde"]
+parallel_rayon = ["polyfit-residuals/parallel_rayon"]

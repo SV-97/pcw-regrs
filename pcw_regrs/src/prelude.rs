@@ -5,12 +5,17 @@ use pcw_fn::VecPcwFn;
 use std::{num::NonZeroUsize, ops::Index};
 use thiserror::Error;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 pub type Float = f64;
 /// # Safety
 /// This has to have the same layout as Float (transparent repr)
 pub type OFloat = OrderedFloat<Float>;
 
+// Maybe this should be a [std::num::NonZeroU64] instead.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct DegreeOfFreedom(NonZeroUsize);
 
 impl From<DegreeOfFreedom> for usize {
@@ -213,4 +218,11 @@ pub fn euclid_sq_metric<T: Real>(x: &T, y: &T) -> T {
     let d = *x - *y;
     // d * d
     d.powi(2)
+}
+
+#[macro_export]
+macro_rules! dof {
+    ($n: expr) => {
+        $crate::prelude::DegreeOfFreedom::try_from($n).unwrap()
+    };
 }

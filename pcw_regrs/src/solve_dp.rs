@@ -1,3 +1,6 @@
+//! The part of the solution concerned with the optimal partitions and general implementation
+//! of the dynamic program.
+
 use std::{cmp, mem::MaybeUninit};
 
 use crate::{
@@ -18,6 +21,8 @@ pub struct CutPath {
     pub elem_after_prev_cut: usize,
 }
 
+/// Represents a solution of the key dynamic program.
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct OptimalJumpData {
     /// `energies[[k,n]]` contains the optimal energy when approximating `data[0..=n]` with exactly
     /// `k + 1` degrees of freedom.
@@ -33,7 +38,7 @@ pub struct OptimalJumpData {
     // TODO: remove first column since it's always full of `None`s
     pub prev_cuts: Array2<Option<CutPath>>,
     /// The maximal number of degrees of freedom to be spent on a single segment
-    max_seg_dof: DegreeOfFreedom,
+    pub(crate) max_seg_dof: DegreeOfFreedom,
 }
 
 /// Solves the core dynamic program
@@ -45,7 +50,7 @@ pub fn solve_dp(
     // the number of degrees of freedom of the approximation.
     training_error: impl Fn(usize, usize, DegreeOfFreedom) -> OFloat,
 ) -> OptimalJumpData {
-    OptimalJumpData::from_approximations(timeseries_sample, user_params, training_error)
+    OptimalJumpData::from_errors(timeseries_sample, user_params, training_error)
 }
 
 /// Returns the minimum of three values.
@@ -58,8 +63,17 @@ fn min3<T: Ord>(a: T, b: T, c: T) -> T {
 // Should also get rid of ugly index shifting.
 
 impl OptimalJumpData {
-    /// Construct `OptimalJumpData` from a piecewise approximation of some data by solving the DP.
-    pub fn from_approximations(
+    /// Construct [OptimalJumpData] - so essentially a piecewise approximation to some data - from non-piecewise training errors
+    /// by solving the DP.
+    ///
+    /// # Arguments
+    /// * `timeseries_sample` - the data for which the pcw approximation is to be computed
+    /// * `user_params` - some additional user-configurable parameters that can be used to speed up the computation,
+    ///     influence the generated model etc.
+    /// * `training_error` - a function mapping a `segment_start_idx`, `segment_end_idx` (inclusive) and degree of
+    ///     freedom `dof` to the error made by a `dof` degree of freedom model on
+    ///     `timeseries_sample[segment_start_idx..=segment_end_idx]`.
+    pub fn from_errors(
         timeseries_sample: &ValidTimeSeriesSample,
         user_params: &MatchedUserParams,
         training_error: impl Fn(usize, usize, DegreeOfFreedom) -> OFloat,
@@ -114,7 +128,7 @@ impl OptimalJumpData {
         }
     }
 
-    /// Solves the minimization in the forward step of the bellman equation.
+    /// Solves the minimization problem in the forward step of the bellman equation.
     fn bellman_step(
         bellman: ArrayView2<Option<OFloat>>,
         right_boundary: usize,
@@ -168,6 +182,16 @@ impl OptimalJumpData {
     /// How long the underlying timeseries is.
     pub fn data_len(&self) -> usize {
         self.energies.shape()[1]
+    }
+
+    /// The optimal "cuts" in the timeseries for a model on the full timeseries. So the
+    /// boundaries between the distinct pieces of the piecewise model.
+    ///
+    /// # Note
+    /// Note that this will do some allocations internally;
+    /// for hot call-sites prefer [OptimalJumpData::optimal_cuts_with_buf] instead.
+    pub fn optimal_cuts(&self, n_dofs: DegreeOfFreedom) -> Option<OwnedDofPartition> {
+        self.optimal_cuts_on_subinterval(n_dofs, self.data_len() - 1)
     }
 
     /// Finds the optimal sequence of cuts for a piecewise approximation of
