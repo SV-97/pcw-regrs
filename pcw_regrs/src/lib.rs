@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_variables)]
 #![feature(let_chains)]
 
 #[cfg(feature = "serde")]
@@ -18,11 +17,11 @@ use pcw_fn::{FunctorRef, PcwFn, VecPcwFn};
 use polyfit_residuals as pr;
 pub use prelude::*;
 use solve_dp::solve_dp;
-mod affine_min;
+pub mod affine_min;
 mod annotate;
 mod approx;
 mod cv;
-mod solve_dp;
+pub mod solve_dp;
 
 /// How many "steps into the future" we predict during cross validation
 const CV_PREDICTION_COUNT: usize = 1;
@@ -209,21 +208,6 @@ impl Solution {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    #[ignore = "This doesn't test anything yet :)"]
-    fn test_opt() {
-        let timeseries_sample =
-            TimeSeriesSample::try_new(&[1., 2., 3.], &[1., 2., 3.], None).unwrap();
-        let ts = ValidTimeSeriesSample::try_from(&timeseries_sample).unwrap();
-        // Resolve optional parameters
-        let up = UserParams::default().match_to_timeseries(&ts);
-        // Calculate all residual errors of the non-pcw fits
-        let residuals = all_residuals(&ts, &up);
-
-        let sol = solve_dp(&ts, &up, all_residuals(&ts, &up));
-        let sol2 = sol.clone();
-        // assert_ne!(sol, sol2)
-    }
 
     mod solve_dp {
 
@@ -231,11 +215,7 @@ mod tests {
         use crate::solve_dp::{CutPath, OptimalJumpData, RefDofPartition};
         use ndarray::arr2;
 
-        fn fit(
-            raw_data: Vec<f64>,
-            max_seg_dof: Option<DegreeOfFreedom>,
-            max_total_dof: Option<DegreeOfFreedom>,
-        ) -> OptimalJumpData {
+        fn fit(raw_data: Vec<f64>, up: UserParams) -> OptimalJumpData {
             let times = (0..raw_data.len())
                 .into_iter()
                 .map(|x| x as f64)
@@ -243,7 +223,7 @@ mod tests {
             let timeseries_sample = TimeSeriesSample::try_new(&times, &raw_data, None).unwrap();
             let ts = ValidTimeSeriesSample::try_from(&timeseries_sample).unwrap();
             // Resolve optional parameters
-            let up = UserParams::default().match_to_timeseries(&ts);
+            let up = up.match_to_timeseries(&ts);
             solve_dp(&ts, &up, all_residuals(&ts, &up))
         }
 
@@ -251,7 +231,7 @@ mod tests {
         fn optimal_jump_data() {
             use ordered_float::OrderedFloat;
             let raw_data = vec![8., 9., 10., 1., 4., 9., 16.];
-            let opt = fit(raw_data.clone(), None, None);
+            let opt = fit(raw_data.clone(), UserParams::default());
 
             let es = arr2(&[
                 [

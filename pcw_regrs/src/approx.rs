@@ -16,6 +16,7 @@ pub struct PolynomialApproximator {
 }
 
 impl PolynomialApproximator {
+    #[allow(dead_code)]
     pub fn poly(self) -> OwnedNewtonPolynomial<OFloat, OFloat> {
         self.poly
     }
