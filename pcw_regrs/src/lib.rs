@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 mod prelude;
 mod stack;
-
+mod tri_array;
 use annotate::Annotated;
 use cv::cv_scores_and_models;
 use derive_new::new;
