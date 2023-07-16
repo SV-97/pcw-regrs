@@ -128,6 +128,18 @@ const fn view_idx_to_linear_idx(_idx @ [row, col]: [usize; 2], n_cols: usize) ->
 }
 
 impl<T> UpperTriArray<Vec<T>> {
+    /// # Safety
+    /// The given [data] vector has to have a len of exactly `partial_triangle(n_rows, n_cols)`.
+    pub const unsafe fn from_raw_parts(data: Vec<T>, n_rows: usize, n_cols: usize) -> Self {
+        Self {
+            data,
+            n_rows,
+            n_cols,
+            n_rows_view: n_rows,
+            n_cols_view: n_cols,
+        }
+    }
+
     pub fn from_elem(n_rows: usize, n_cols: usize, elem: T) -> Self
     where
         T: Clone,
@@ -265,22 +277,17 @@ impl<'a, T> GetMut<[usize; 2]> for UpperTriArray<&'a mut [T]> {
     }
 }
 
-/*
-impl<S> UpperTriArray<S>
-where
-    S: IndexMut<usize>,
-{
+impl<'a, T> GetMut<[usize; 2]> for UpperTriArray<Vec<T>> {
     #[inline]
-    pub fn get_mut(&mut self, idx @ [row, col]: [usize; 2]) -> Option<&mut S::Output> {
+    fn get_mut(&mut self, idx: [usize; 2]) -> Option<&mut Self::Output> {
         // index out of bounds of valid region
-        if row >= self.n_rows_view || col >= self.n_cols_view || col < row {
+        if !self.idx_in_bounds(idx) {
             None
         } else {
             Some(&mut self.data[view_idx_to_linear_idx(idx, self.n_cols)])
         }
     }
 }
-*/
 
 impl<S> Index<[usize; 2]> for UpperTriArray<S>
 where
@@ -421,9 +428,15 @@ impl<S> UpperTriArray<S> {
     where
         Self: UpperTriArrayViewMutTrait<T>,
     {
+        let idx = if self.n_cols_view == 0 || self.n_rows_view == 0 {
+            // if either dimension is 0 the view is empty and we must immediately set the index to 0
+            None
+        } else {
+            Some([0, 0])
+        };
         RowIterMut {
             arr: self.view_mut(self.n_rows_view, self.n_cols_view),
-            idx: Some([0, 0]),
+            idx,
         }
     }
 }
@@ -457,6 +470,50 @@ impl<'a, T> Iterator for RowIterMut<'a, T> {
                 to_ret
             }
         }
+    }
+}
+
+pub type OwnedUpperTriArray<T> = UpperTriArray<Vec<T>>;
+
+impl<T> OwnedUpperTriArray<T> {
+    /// Construct a UpperTriArray by running a recursive function on increasingly larger sublocks
+    /// of the array.
+    /// So the element at index [i,j] may depend on all values with indices [i',j'] such that i'<i
+    /// and j'<j.
+    /// Note that this is essentially a special kind of `scan`
+    pub fn from_principal_block_rec(
+        n_rows: usize,
+        n_cols: usize,
+        mut rec_func: impl for<'a> FnMut([usize; 2], UpperTriArrayViewMut<'a, T>) -> T,
+    ) -> Self {
+        let mut arr: OwnedUpperTriArray<MaybeUninit<T>> = {
+            let n = partial_triangle(n_rows, n_cols);
+            let mut data: Vec<MaybeUninit<_>> = Vec::with_capacity(n);
+            unsafe {
+                // Safety: we explicitily set the capacity using the same value n
+                // Since we use a Vec of MaybeUninits it's fine that we're assuming
+                // the uninitialized values to be initialized.
+                data.set_len(n);
+                // Safety: n has the size required by from_raw_parts
+                UpperTriArray::from_raw_parts(data, n_rows, n_cols)
+            }
+        };
+
+        for row in 0..n_rows {
+            for col in row..n_cols {
+                let view = arr.view_mut(row + 1, col);
+                // Safety:
+                // At this point we know that all rows above the current one are fully init,
+                // and all elements in the cols left to the current one are also initialized.
+                // Thus the intersection of these two regions is also fully initialized. This
+                // is the one we're interested in for the recursion and the one we've just gotten
+                // a view for.
+                // So we can safely transmute this region into an initialized one
+                let view_init: UpperTriArrayViewMut<T> = unsafe { std::mem::transmute(view) };
+                arr[[row, col]] = MaybeUninit::new(rec_func([row, col], view_init));
+            }
+        }
+        unsafe { std::mem::transmute(arr) }
     }
 }
 
@@ -562,5 +619,56 @@ mod tests {
         assert_eq!(it.next(), Some(&32));
         assert_eq!(it.next(), Some(&64));
         assert_eq!(it.next(), None);
+    }
+
+    #[test]
+    fn from_block_rec_const() {
+        let arr = UpperTriArray::from_principal_block_rec(3, 3, |_, _| 0);
+        assert_eq!(arr[[0, 0]], 0);
+        assert_eq!(arr[[0, 1]], 0);
+        assert_eq!(arr[[0, 2]], 0);
+        assert_eq!(arr[[1, 1]], 0);
+        assert_eq!(arr[[1, 2]], 0);
+        assert_eq!(arr[[2, 2]], 0);
+    }
+
+    #[test]
+    fn from_block_rec() {
+        let arr = UpperTriArray::from_principal_block_rec(3, 3, |idx, view| {
+            dbg!(&view);
+            match idx {
+                [0, 0] => 0,
+                [row, col] if row == col => view[[row - 1, col - 1]] + 2,
+                [row, col] => view[[row, col - 1]] * 2 + 1,
+            }
+        });
+        assert_eq!(arr[[0, 0]], 0);
+        assert_eq!(arr[[0, 1]], 1);
+        assert_eq!(arr[[0, 2]], 3);
+        assert_eq!(arr[[1, 1]], 2);
+        assert_eq!(arr[[1, 2]], 5);
+        assert_eq!(arr[[2, 2]], 4);
+    }
+
+    #[test]
+    fn from_block_rec2() {
+        let arr = UpperTriArray::from_principal_block_rec(
+            3,
+            3,
+            |idx, view: UpperTriArrayViewMut<'_, i32>| match idx {
+                [0, 0] => 0,
+                [row, col] if row == col => view[[row - 1, col - 1]] + 2,
+                [_, _] => {
+                    let x = view.into_iter_row_major().max().unwrap();
+                    x * 2 + 1
+                }
+            },
+        );
+        assert_eq!(arr[[0, 0]], 0);
+        assert_eq!(arr[[0, 1]], 1);
+        assert_eq!(arr[[0, 2]], 3);
+        assert_eq!(arr[[1, 1]], 2);
+        assert_eq!(arr[[1, 2]], 5);
+        assert_eq!(arr[[2, 2]], 4);
     }
 }
