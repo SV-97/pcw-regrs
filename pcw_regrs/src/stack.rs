@@ -26,6 +26,40 @@ where
     phantom: PhantomData<T>,
 }
 
+impl<T, B> Stack<T, B>
+where
+    T: Copy,
+    B: AsRef<[MaybeUninit<T>]> + AsMut<[MaybeUninit<T>]>,
+{
+    pub fn split(
+        &mut self,
+    ) -> (
+        Stack<T, &mut [MaybeUninit<T>]>,
+        Stack<T, &mut [MaybeUninit<T>]>,
+    ) {
+        let mid = self.push_count / 2;
+        println!(
+            "splitting {} into {} and {}",
+            self.push_count,
+            mid,
+            self.push_count - mid
+        );
+        let (buffer_l, buffer_r) = self.buffer.as_mut().split_at_mut(mid);
+        let mut stack_l: Stack<T, &mut [MaybeUninit<T>]> = Stack {
+            buffer: buffer_l,
+            push_count: self.push_count / 2,
+            phantom: PhantomData,
+        };
+        let mut stack_r: Stack<T, &mut [MaybeUninit<T>]> = Stack {
+            buffer: buffer_r,
+            push_count: self.push_count - mid,
+            phantom: PhantomData,
+        };
+        self.push_count = 0;
+        (stack_l, stack_r)
+    }
+}
+
 impl<T: Copy, const N: usize> Stack<T, [MaybeUninit<T>; N]> {
     /// Construct a new stack on the stack
     pub const fn new_on_stack() -> Self {
