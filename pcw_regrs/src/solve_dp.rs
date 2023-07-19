@@ -6,10 +6,13 @@ use std::{cmp, mem::MaybeUninit};
 use crate::{
     dof,
     prelude::*,
+    shape,
     stack::{HeapStack, Stack},
+    tri_array::{prelude::*, UpperTriArray, UpperTriArrayBuilder},
 };
 
 use ndarray::{s, Array2, ArrayView2};
+use num_traits::Float;
 
 /// A single "cut" of the partition given by reference data for which cut should come before it.
 // Note that this is essentially a linked list through some indirection given by the DP solution.
@@ -65,7 +68,176 @@ fn min3<T: Ord>(a: T, b: T, c: T) -> T {
 // TODO: Make Bellman / Energies into a struct and abstract the operations on it out into methods.
 // Should also get rid of ugly index shifting.
 
+struct Bellman {
+    energies: UpperTriArray<OFloat>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MinimizationSolution<ArgMin, Min> {
+    argmin: ArgMin,
+    min: Min,
+}
+
+/// Solves the minimization problem in the forward step of the bellman equation.
+fn bellman_step(
+    bellman: UpperTriArrayView<OFloat>,
+    right_boundary: usize,
+    k_degrees_of_freedom_plus_one: usize,
+    max_seg_dof: usize,
+    solutions: &mut HeapStack<MinimizationSolution<(isize, usize), OFloat>>,
+    // Calculates the residual error / training error of a model fit given a segment_start_idx,
+    // segment_stop_idx and the number of degrees of freedom of the approximation.
+    training_error: impl Fn(usize, usize, DegreeOfFreedom) -> OFloat,
+) -> MinimizationSolution<(isize, usize), OFloat> {
+    let r = right_boundary;
+    let k_dof_plus = k_degrees_of_freedom_plus_one;
+
+    for l in 0..=r {
+        let p_r_min = cmp::max(k_dof_plus.saturating_sub(l + 1), 1);
+        let p_r_max = min3(
+            r + 1 - l,      // p_r can't be more larger than the number of data point in the segment
+            max_seg_dof,    // it's also restricted by the maximal dof we allow on any segment
+            k_dof_plus - 1, // and of course the total dof count minus 1 since 1 dof has to be spent on p_l
+        );
+        for p_r in p_r_min..=p_r_max {
+            let p_l = k_dof_plus - p_r;
+            let d = training_error(l + 1, r + 1, DegreeOfFreedom::try_from(p_r).unwrap());
+
+            // `p_l - 1` to account for offset in bellman array indexing
+            if let Some(e) = bellman.get([p_l - 1, l]) {
+                let energy = e;
+
+                solutions.push_unchecked(MinimizationSolution {
+                    argmin: (l as isize, p_l),
+                    min: energy + d,
+                });
+            }
+        }
+        // handle the case where we approximate the whole segment with a single model: so p_r = k+1, p_l = 0
+        if k_dof_plus
+            <= std::cmp::min(
+                r + 2,
+                max_seg_dof, // it's also restricted by the maximal dof we allow on any segment
+            )
+        {
+            solutions.push_unchecked(MinimizationSolution {
+                argmin: (-1, 0),
+                min: training_error(0, r + 1, DegreeOfFreedom::try_from(k_dof_plus).unwrap()),
+            });
+        }
+    }
+
+    std::thread::scope(|s| {
+        let (mut s1, mut s2) = solutions.split();
+        let m1 = s.spawn(move || {
+            s1.pop_iter()
+                .min_by(
+                    |MinimizationSolution { min: energy_1, .. },
+                     MinimizationSolution { min: energy_2, .. }| {
+                        energy_1.cmp(energy_2)
+                    },
+                )
+                .unwrap()
+        });
+        let m2 = s2
+            .pop_iter()
+            .min_by(
+                |MinimizationSolution { min: energy_1, .. },
+                 MinimizationSolution { min: energy_2, .. }| energy_1.cmp(energy_2),
+            )
+            .unwrap();
+        std::cmp::min_by(
+            m1.join().unwrap(),
+            m2,
+            |MinimizationSolution { min: energy_1, .. },
+             MinimizationSolution { min: energy_2, .. }| { energy_1.cmp(energy_2) },
+        )
+    })
+}
+
 impl OptimalJumpData {
+    pub fn new(
+        timeseries_sample: &ValidTimeSeriesSample,
+        user_params: &MatchedUserParams,
+        training_error: impl Fn(usize, usize, DegreeOfFreedom) -> OFloat,
+    ) -> Self {
+        let data_len = usize::from(timeseries_sample.len());
+        let max_total_dof = usize::from(user_params.max_total_dof);
+        let max_seg_dof = usize::from(user_params.max_seg_dof);
+        // a stack onto which we push all the partial `ls`, `p_l`s and energies before finding their minimum
+        // TODO: verify the actually correct size for this stack. The current is guaranteed to be large enough
+        // but it uses a rather bad bound.
+        let mut solutions = Stack::with_capacity(data_len * max_total_dof);
+        let mut prev_cuts = UpperTriArrayBuilder::new(shape!(max_total_dof - 1, data_len - 1));
+
+        let energies = OwnedUpperTriArray::from_principal_block_rec(
+            shape!(max_total_dof, data_len),
+            #[inline]
+            |idx, known_energies| {
+                match idx {
+                    // with 1 dof we have to approximate all of the considered data with a constant
+                    [0, rb] => training_error(0, rb, DegreeOfFreedom::one()),
+                    [dof_idx, right_boundary]
+                        if (2..=cmp::min(right_boundary + 2, max_total_dof))
+                            .contains(&(dof_idx + 2))
+                            && right_boundary < data_len - 1 =>
+                    {
+                        // dbg!([dof_idx, right_boundary, data_len - 1]);
+                        let dofs = dof_idx + 1;
+                        let sol = bellman_step(
+                            known_energies,
+                            right_boundary,
+                            dofs + 1,
+                            max_seg_dof,
+                            &mut solutions,
+                            &training_error,
+                        );
+                        prev_cuts.push(Some({
+                            let (l_min, p_l_min) = sol.argmin;
+                            if p_l_min == 0 {
+                                CutPath::NoCuts
+                            } else {
+                                CutPath::SomeCuts {
+                                    remaining_dofs: DegreeOfFreedom::try_from(p_l_min).unwrap(),
+                                    elem_after_prev_cut: (l_min + 1) as usize,
+                                }
+                            }
+                        }));
+                        sol.min
+                    }
+                    // Value is not valid; we don't want to consider it during minimization
+                    _ => {
+                        prev_cuts.push(None);
+                        OFloat::infinity()
+                    }
+                }
+            },
+            |_| unreachable!(),
+        );
+
+        let prev_cuts: OwnedUpperTriArray<_> = prev_cuts.try_into().unwrap();
+
+        let mut nd_energies = Array2::from_elem((max_total_dof, data_len), None);
+        let mut nd_prev_cuts = Array2::from_elem((max_total_dof - 1, data_len), None);
+
+        for i in 0..max_total_dof {
+            for j in i..data_len {
+                nd_energies[[i, j]] = Some(energies[[i, j]]);
+            }
+        }
+        for i in 0..max_total_dof - 1 {
+            for j in i + 1..data_len {
+                nd_prev_cuts[[i, j]] = prev_cuts[[i, j - 1]];
+            }
+        }
+
+        OptimalJumpData {
+            energies: nd_energies,
+            prev_cuts: nd_prev_cuts,
+            max_seg_dof: user_params.max_seg_dof,
+        }
+    }
+
     /// Construct [OptimalJumpData] - so essentially a piecewise approximation to some data - from non-piecewise training errors
     /// by solving the DP.
     ///
@@ -81,6 +253,7 @@ impl OptimalJumpData {
         user_params: &MatchedUserParams,
         training_error: impl Fn(usize, usize, DegreeOfFreedom) -> OFloat,
     ) -> Self {
+        return Self::new(timeseries_sample, user_params, training_error);
         let data_len = usize::from(timeseries_sample.len());
         let max_total_dof = usize::from(user_params.max_total_dof);
         let max_seg_dof = usize::from(user_params.max_seg_dof);
@@ -127,6 +300,7 @@ impl OptimalJumpData {
                 };
             }
         }
+        // println!("{:?}", &prev_cuts);
 
         OptimalJumpData {
             energies,
@@ -162,6 +336,7 @@ impl OptimalJumpData {
 
                 // `p_l - 1` to account for offset in bellman array indexing
                 if let Some(energy) = bellman[[p_l - 1, l]] {
+                    dbg!("Push 1");
                     solutions.push_unchecked(((l as isize, p_l), energy + d));
                 }
             }
@@ -172,6 +347,7 @@ impl OptimalJumpData {
                     max_seg_dof, // it's also restricted by the maximal dof we allow on any segment
                 )
             {
+                dbg!("Push 2");
                 solutions.push_unchecked((
                     (-1, 0),
                     training_error(0, r + 1, DegreeOfFreedom::try_from(k_dof_plus).unwrap()),
@@ -179,11 +355,37 @@ impl OptimalJumpData {
             }
         }
 
-        let (arg_min, min_energy) = solutions
+        // /*
+        let res = std::thread::scope(|s| {
+            dbg!(solutions.filled().len());
+            let (mut s1, mut s2) = solutions.split();
+            dbg!("got_here");
+            let m1 = s1
+                .pop_iter()
+                .min_by(|(_, energy_1), (_, energy_2)| energy_1.cmp(energy_2))
+                .unwrap();
+            dbg!("got_here 1");
+            let m2 = s2
+                .pop_iter()
+                .min_by(|(_, energy_1), (_, energy_2)| energy_1.cmp(energy_2))
+                .unwrap();
+            dbg!("got_here 2");
+            let res = std::cmp::min_by(m1, m2, |(_, energy_1), (_, energy_2)| {
+                energy_1.cmp(energy_2)
+            });
+            dbg!("got_here 3");
+            res
+        });
+        dbg!(solutions.filled().len());
+        res
+        //*/
+        /*
+
+        solutions
             .pop_iter()
             .min_by(|(_, energy_1), (_, energy_2)| energy_1.cmp(energy_2))
-            .unwrap();
-        (arg_min, min_energy)
+            .unwrap()
+        */
     }
 
     /// How long the underlying timeseries is.
