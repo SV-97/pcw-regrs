@@ -212,7 +212,7 @@ mod tests {
     mod solve_dp {
 
         use super::*;
-        use crate::solve_dp::{CutPath, OptimalJumpData, RefDofPartition};
+        use crate::solve_dp::{BellmanTable, CutPath, OptimalJumpData, RefDofPartition};
         use ndarray::arr2;
 
         fn fit(raw_data: Vec<f64>, up: UserParams) -> OptimalJumpData {
@@ -386,7 +386,7 @@ mod tests {
             assert_eq!(
                 opt,
                 OptimalJumpData {
-                    energies: es,
+                    energies: BellmanTable { energies: es },
                     prev_cuts: pc,
                     max_seg_dof: DegreeOfFreedom::try_from(7).unwrap(),
                 }

@@ -46,6 +46,10 @@ impl DegreeOfFreedom {
         }
     }
 
+    pub unsafe fn new_unchecked(n: usize) -> Self {
+        DegreeOfFreedom(unsafe { NonZeroUsize::new_unchecked(n) })
+    }
+
     pub const fn one() -> Self {
         unsafe { DegreeOfFreedom(NonZeroUsize::new_unchecked(1)) }
     }
