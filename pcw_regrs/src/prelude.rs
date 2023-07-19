@@ -114,6 +114,7 @@ pub struct MatchedUserParams {
     pub max_seg_dof: DegreeOfFreedom,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 // TODO: add other lifetime params
 pub struct TimeSeriesSample<'a> {
     /// Has to have same length as `response` and `weights`.

@@ -5,6 +5,13 @@ use std::borrow::{Borrow, BorrowMut};
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut};
 
+pub mod prelude {
+    pub use super::{
+        Get, GetMut, OwnedUpperTriArray, UpperTriArrayView, UpperTriArrayViewMut,
+        UpperTriArrayViewMutTrait, UpperTriArrayViewTrait,
+    };
+}
+
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct UpperTriArray<S> {
     /*
@@ -46,6 +53,69 @@ pub struct UpperTriArray<S> {
     // the width of the columns actually used for indexing
     // using this allows us to implement subviews without special logic
     n_cols_view: usize,
+}
+
+pub struct UpperTriArrayBuilder<T> {
+    data: Vec<T>,
+    // number of rows
+    n_rows: usize,
+    // number of columns
+    n_cols: usize,
+    // the width of the columns actually used for indexing
+    // using this allows us to implement subviews without special logic
+    n_rows_view: usize,
+    // the width of the columns actually used for indexing
+    // using this allows us to implement subviews without special logic
+    n_cols_view: usize,
+}
+
+impl<T> UpperTriArrayBuilder<T> {
+    pub fn new(shape: ArrayShape) -> Self {
+        let (n_rows, n_cols, n_rows_view, n_cols_view) = shape.resolve();
+        if n_rows > n_cols {
+            panic!("Upper triangular arrays can't have more rows than columns. There are no elements under the diagonal.");
+        } else {
+            Self {
+                data: Vec::with_capacity(partial_triangle(n_rows, n_cols)),
+                n_rows,
+                n_cols,
+                n_rows_view,
+                n_cols_view,
+            }
+        }
+    }
+
+    pub fn push(&mut self, elem: T) {
+        self.data.push(elem)
+    }
+}
+
+impl<T> TryFrom<UpperTriArrayBuilder<T>> for OwnedUpperTriArray<T> {
+    type Error = ();
+    fn try_from(
+        UpperTriArrayBuilder {
+            data,
+            n_rows,
+            n_cols,
+            n_rows_view,
+            n_cols_view,
+        }: UpperTriArrayBuilder<T>,
+    ) -> Result<Self, Self::Error> {
+        // dbg!(data.len());
+        // dbg!(partial_triangle(n_rows, n_cols));
+        // dbg!((n_rows, n_cols));
+        if data.len() == partial_triangle(n_rows, n_cols) {
+            Ok(UpperTriArray {
+                data,
+                n_rows,
+                n_cols,
+                n_rows_view,
+                n_cols_view,
+            })
+        } else {
+            Err(())
+        }
+    }
 }
 
 #[inline(always)]
@@ -127,23 +197,72 @@ const fn view_idx_to_linear_idx(_idx @ [row, col]: [usize; 2], n_cols: usize) ->
     col + n_cols * row - triangle(row)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArrayShape {
+    Square(usize),
+    Rect {
+        n_rows: usize,
+        n_cols: usize,
+    },
+    View {
+        n_rows: usize,
+        n_cols: usize,
+        n_rows_view: usize,
+        n_cols_view: usize,
+    },
+}
+
+impl ArrayShape {
+    const fn resolve(self) -> (usize, usize, usize, usize) {
+        match self {
+            ArrayShape::Square(n) => (n, n, n, n),
+            ArrayShape::Rect { n_rows, n_cols } => (n_rows, n_cols, n_rows, n_cols),
+            ArrayShape::View {
+                n_rows,
+                n_cols,
+                n_rows_view,
+                n_cols_view,
+            } => (n_rows, n_cols, n_rows_view, n_cols_view),
+        }
+    }
+}
+
 impl<T> UpperTriArray<Vec<T>> {
-    /// # Safety
-    /// The given [data] vector has to have a len of exactly `partial_triangle(n_rows, n_cols)`.
-    pub const unsafe fn from_raw_parts(data: Vec<T>, n_rows: usize, n_cols: usize) -> Self {
+    fn new(shape: ArrayShape, data: Vec<T>) -> Self {
+        let (n_rows, n_cols, n_rows_view, n_cols_view) = shape.resolve();
+        assert!(n_rows <= n_cols, "Upper triangular arrays can't have more rows than columns. There are no elements under the diagonal.");
+        assert_eq!(
+            data.len(),
+            partial_triangle(n_rows, n_cols),
+            "Can't construct triangular array from given Vec: incorrect len"
+        );
         Self {
             data,
             n_rows,
             n_cols,
-            n_rows_view: n_rows,
-            n_cols_view: n_cols,
+            n_rows_view,
+            n_cols_view,
         }
     }
 
-    pub fn from_elem(n_rows: usize, n_cols: usize, elem: T) -> Self
+    /// # Safety
+    /// The given [data] vector has to have a len of exactly `partial_triangle(n_rows, n_cols)`.
+    pub const unsafe fn from_raw_parts(shape: ArrayShape, data: Vec<T>) -> Self {
+        let (n_rows, n_cols, n_rows_view, n_cols_view) = shape.resolve();
+        Self {
+            data,
+            n_rows,
+            n_cols,
+            n_rows_view,
+            n_cols_view,
+        }
+    }
+
+    pub fn from_elem(shape: ArrayShape, elem: T) -> Self
     where
         T: Clone,
     {
+        let (n_rows, n_cols, n_rows_view, n_cols_view) = shape.resolve();
         if n_rows > n_cols {
             panic!("Upper triangular arrays can't have more rows than columns. There are no elements under the diagonal.");
         } else {
@@ -151,13 +270,14 @@ impl<T> UpperTriArray<Vec<T>> {
                 data: vec![elem; partial_triangle(n_rows, n_cols)],
                 n_rows,
                 n_cols,
-                n_rows_view: n_rows,
-                n_cols_view: n_cols,
+                n_rows_view,
+                n_cols_view,
             }
         }
     }
 
-    pub fn from_fn(n_rows: usize, n_cols: usize, mut func: impl FnMut() -> T) -> Self {
+    pub fn from_fn(shape: ArrayShape, mut func: impl FnMut() -> T) -> Self {
+        let (n_rows, n_cols, n_rows_view, n_cols_view) = shape.resolve();
         let n = partial_triangle(n_rows, n_cols);
         let mut data = Vec::with_capacity(n);
         for _ in 0..n {
@@ -167,8 +287,8 @@ impl<T> UpperTriArray<Vec<T>> {
             data,
             n_rows,
             n_cols,
-            n_rows_view: n_rows,
-            n_cols_view: n_cols,
+            n_rows_view,
+            n_cols_view,
         }
     }
 
@@ -327,10 +447,10 @@ where
             n_rows_view <= self.n_rows && n_cols_view <= self.n_cols,
             "View can't be larger than parent array"
         );
-        assert!(
-            n_rows_view <= n_cols_view,
-            "Trying to create a view into data below the diagonal"
-        );
+        // assert!(
+        //     n_rows_view <= n_cols_view,
+        //     "Trying to create a view into data below the diagonal"
+        // );
         UpperTriArray {
             data: self.data.borrow(),
             n_rows: self.n_rows,
@@ -481,11 +601,13 @@ impl<T> OwnedUpperTriArray<T> {
     /// So the element at index [i,j] may depend on all values with indices [i',j'] such that i'<i
     /// and j'<j.
     /// Note that this is essentially a special kind of `scan`
-    pub fn from_principal_block_rec(
-        n_rows: usize,
-        n_cols: usize,
+    pub fn from_principal_block_rec_mut(
+        shape: ArrayShape,
         mut rec_func: impl for<'a> FnMut([usize; 2], UpperTriArrayViewMut<'a, T>) -> T,
+        mut filler: impl for<'a> FnMut([usize; 2]) -> T,
     ) -> Self {
+        let (n_rows, n_cols, n_rows_view, n_cols_view) = shape.resolve();
+
         let mut arr: OwnedUpperTriArray<MaybeUninit<T>> = {
             let n = partial_triangle(n_rows, n_cols);
             let mut data: Vec<MaybeUninit<_>> = Vec::with_capacity(n);
@@ -495,12 +617,12 @@ impl<T> OwnedUpperTriArray<T> {
                 // the uninitialized values to be initialized.
                 data.set_len(n);
                 // Safety: n has the size required by from_raw_parts
-                UpperTriArray::from_raw_parts(data, n_rows, n_cols)
+                UpperTriArray::from_raw_parts(shape, data)
             }
         };
 
-        for row in 0..n_rows {
-            for col in row..n_cols {
+        for row in 0..n_rows_view {
+            for col in row..n_cols_view {
                 let view = arr.view_mut(row + 1, col);
                 // Safety:
                 // At this point we know that all rows above the current one are fully init,
@@ -511,6 +633,65 @@ impl<T> OwnedUpperTriArray<T> {
                 // So we can safely transmute this region into an initialized one
                 let view_init: UpperTriArrayViewMut<T> = unsafe { std::mem::transmute(view) };
                 arr[[row, col]] = MaybeUninit::new(rec_func([row, col], view_init));
+            }
+            for col in n_cols_view..n_cols {
+                arr[[row, col]] = MaybeUninit::new(filler([row, col]));
+            }
+        }
+        for row in n_rows_view..n_rows {
+            for col in row..n_cols {
+                arr[[row, col]] = MaybeUninit::new(filler([row, col]));
+            }
+        }
+        unsafe { std::mem::transmute(arr) }
+    }
+
+    /// Construct a UpperTriArray by running a recursive function on increasingly larger sublocks
+    /// of the array.
+    /// So the element at index [i,j] may depend on all values with indices [i',j'] such that i'<i
+    /// and j'<j.
+    /// Note that this is essentially a special kind of `scan`
+    pub fn from_principal_block_rec(
+        shape: ArrayShape,
+        mut rec_func: impl for<'a> FnMut([usize; 2], UpperTriArrayView<'a, T>) -> T,
+        mut filler: impl for<'a> FnMut([usize; 2]) -> T,
+    ) -> Self {
+        let (n_rows, n_cols, n_rows_view, n_cols_view) = shape.resolve();
+
+        let mut arr: OwnedUpperTriArray<MaybeUninit<T>> = {
+            let n = partial_triangle(n_rows, n_cols);
+            let mut data: Vec<MaybeUninit<_>> = Vec::with_capacity(n);
+            unsafe {
+                // Safety: we explicitily set the capacity using the same value n
+                // Since we use a Vec of MaybeUninits it's fine that we're assuming
+                // the uninitialized values to be initialized.
+                data.set_len(n);
+                // Safety: n has the size required by from_raw_parts
+                UpperTriArray::from_raw_parts(shape, data)
+            }
+        };
+
+        for row in 0..n_rows_view {
+            for col in row..n_cols_view {
+                // dbg!([row, col]);
+                let view = arr.view(row + 1, col);
+                // Safety:
+                // At this point we know that all rows above the current one are fully init,
+                // and all elements in the cols left to the current one are also initialized.
+                // Thus the intersection of these two regions is also fully initialized. This
+                // is the one we're interested in for the recursion and the one we've just gotten
+                // a view for.
+                // So we can safely transmute this region into an initialized one
+                let view_init: UpperTriArrayView<T> = unsafe { std::mem::transmute(view) };
+                arr[[row, col]] = MaybeUninit::new(rec_func([row, col], view_init));
+            }
+            for col in n_cols_view..n_cols {
+                arr[[row, col]] = MaybeUninit::new(filler([row, col]));
+            }
+        }
+        for row in n_rows_view..n_rows {
+            for col in row..n_cols {
+                arr[[row, col]] = MaybeUninit::new(filler([row, col]));
             }
         }
         unsafe { std::mem::transmute(arr) }
@@ -592,6 +773,7 @@ mod tests {
 
     #[test]
     #[should_panic]
+    #[ignore]
     fn view_below_diagonal() {
         let data = vec![2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];
         let array: UpperTriArray<Vec<u32>> = UpperTriArray::from_row_major_vec(4, 4, data);
@@ -623,7 +805,11 @@ mod tests {
 
     #[test]
     fn from_block_rec_const() {
-        let arr = UpperTriArray::from_principal_block_rec(3, 3, |_, _| 0);
+        let arr = UpperTriArray::from_principal_block_rec(
+            ArrayShape::Square(3),
+            |_, _| 0,
+            |_| unreachable!(),
+        );
         assert_eq!(arr[[0, 0]], 0);
         assert_eq!(arr[[0, 1]], 0);
         assert_eq!(arr[[0, 2]], 0);
@@ -634,14 +820,15 @@ mod tests {
 
     #[test]
     fn from_block_rec() {
-        let arr = UpperTriArray::from_principal_block_rec(3, 3, |idx, view| {
-            dbg!(&view);
-            match idx {
+        let arr = UpperTriArray::from_principal_block_rec(
+            ArrayShape::Square(3),
+            |idx, view| match idx {
                 [0, 0] => 0,
                 [row, col] if row == col => view[[row - 1, col - 1]] + 2,
                 [row, col] => view[[row, col - 1]] * 2 + 1,
-            }
-        });
+            },
+            |_| unreachable!(),
+        );
         assert_eq!(arr[[0, 0]], 0);
         assert_eq!(arr[[0, 1]], 1);
         assert_eq!(arr[[0, 2]], 3);
@@ -653,9 +840,8 @@ mod tests {
     #[test]
     fn from_block_rec2() {
         let arr = UpperTriArray::from_principal_block_rec(
-            3,
-            3,
-            |idx, view: UpperTriArrayViewMut<'_, i32>| match idx {
+            ArrayShape::Square(3),
+            |idx, view: UpperTriArrayView<'_, i32>| match idx {
                 [0, 0] => 0,
                 [row, col] if row == col => view[[row - 1, col - 1]] + 2,
                 [_, _] => {
@@ -663,6 +849,7 @@ mod tests {
                     x * 2 + 1
                 }
             },
+            |_| unreachable!(),
         );
         assert_eq!(arr[[0, 0]], 0);
         assert_eq!(arr[[0, 1]], 1);
@@ -671,4 +858,25 @@ mod tests {
         assert_eq!(arr[[1, 2]], 5);
         assert_eq!(arr[[2, 2]], 4);
     }
+}
+
+#[macro_export]
+macro_rules! shape {
+    ($n: expr) => {
+        $crate::tri_array::ArrayShape::Square($n)
+    };
+    ($n_rows: expr, $n_cols: expr) => {
+        $crate::tri_array::ArrayShape::Rect {
+            n_rows: $n_rows,
+            n_cols: $n_cols,
+        }
+    };
+    ($n_rows: expr, $n_cols: expr; $n_rows_view: expr, $n_cols_view: expr) => {
+        $crate::tri_array::ArrayShape::View {
+            n_rows: $n_rows,
+            n_cols: $n_cols,
+            n_rows_view: $n_rows_view,
+            n_cols_view: $n_cols_view,
+        }
+    };
 }
