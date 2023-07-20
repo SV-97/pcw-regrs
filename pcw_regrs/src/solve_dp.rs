@@ -1,7 +1,10 @@
 //! The part of the solution concerned with the optimal partitions and general implementation
 //! of the dynamic program.
 
-use std::{cmp, mem::MaybeUninit};
+use std::{
+    cmp::{self, Ordering},
+    mem::MaybeUninit,
+};
 
 use crate::{
     dof,
@@ -489,6 +492,129 @@ fn try_cut_path_to_cut(cut_path: CutPath, n_dofs: DegreeOfFreedom) -> Option<Cut
                 // subtract one dof for the cut itself
                 right_dofs: n_dofs.checked_sub(remaining_dofs).unwrap(),
             })
+        }
+    }
+}
+
+mod parallel_minimizer {
+    use std::cmp;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::MutexGuard;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::thread::JoinHandle;
+
+    enum ServerCommand {
+        Start,
+        Stop,
+    }
+
+    struct MinServer<T> {
+        buffer_select: Arc<AtomicUsize>,
+        buffers: [Arc<Mutex<Vec<T>>>; 2],
+        out: Sender<Option<T>>,
+        notify_done: Receiver<ServerCommand>,
+    }
+
+    pub struct ParallelMinimizer<T> {
+        thread_handle: JoinHandle<()>,
+        buffer_select: Arc<AtomicUsize>,
+        currently_filled: Arc<AtomicUsize>,
+        buffers: [Arc<Mutex<Vec<T>>>; 2],
+        out: Receiver<Option<T>>,
+        notify_done: Sender<ServerCommand>,
+    }
+
+    impl<T: Send> ParallelMinimizer<T> {
+        pub fn new<F>(cmp: F) -> ParallelMinimizer<T>
+        where
+            F: Fn(&T, &T) -> std::cmp::Ordering + Send + 'static,
+            T: 'static,
+        {
+            let buffer_select = Arc::new(AtomicUsize::new(0));
+            let currently_filled = Arc::new(AtomicUsize::new(0));
+            let buffers = [
+                Arc::new(Mutex::new(Vec::new())),
+                Arc::new(Mutex::new(Vec::new())),
+            ];
+            let (out_send, out_recv) = channel();
+            let (notify_done_send, notify_done_recv) = channel();
+            let server_buffer_select = Arc::clone(&buffer_select);
+            let server_buffers = [Arc::clone(&buffers[0]), Arc::clone(&buffers[1])];
+            let handle = thread::spawn(move || {
+                MinServer {
+                    buffer_select: server_buffer_select,
+                    buffers: server_buffers,
+                    out: out_send,
+                    notify_done: notify_done_recv,
+                }
+                .serve(cmp)
+            });
+            Self {
+                thread_handle: handle,
+                buffer_select: buffer_select,
+                currently_filled,
+                buffers,
+                out: out_recv,
+                notify_done: notify_done_send,
+            }
+        }
+
+        pub fn restart(&mut self) {
+            self.notify_done.send(ServerCommand::Start).unwrap();
+        }
+
+        pub fn add_value(&mut self, val: T) {
+            let write_buffer_idx = self.buffer_select.load(Ordering::Relaxed);
+            let mut buf = self.buffers[write_buffer_idx].lock().unwrap();
+            buf.push(val)
+        }
+
+        pub fn acquire(&mut self) -> MutexGuard<Vec<T>> {
+            let write_buffer_idx = self.buffer_select.load(Ordering::Relaxed);
+            self.buffers[write_buffer_idx].lock().unwrap()
+        }
+
+        pub fn done(&mut self) -> Option<T> {
+            self.notify_done.send(ServerCommand::Stop).unwrap();
+            let out = self.out.recv().unwrap();
+            self.notify_done.send(ServerCommand::Start).unwrap();
+            out
+        }
+    }
+
+    impl<T> MinServer<T> {
+        pub fn serve(self, cmp: impl Fn(&T, &T) -> std::cmp::Ordering) {
+            let mut min = None;
+            loop {
+                let write_buffer_idx = 1 ^ self.buffer_select.fetch_xor(1, Ordering::Relaxed);
+                let mut buf = self.buffers[write_buffer_idx].lock().unwrap();
+                min = match (min, buf.drain(..).min_by(&cmp)) {
+                    (None, None) => None,
+                    (None, Some(m)) => Some(m),
+                    (Some(m), None) => Some(m),
+                    (Some(m1), Some(m2)) => Some(cmp::min_by(m1, m2, &cmp)),
+                };
+                if let Ok(ServerCommand::Stop) = self.notify_done.try_recv() {
+                    // run min over buffer that might've been written in the meantime
+                    let mut buf = self.buffers[1 ^ write_buffer_idx].lock().unwrap();
+                    min = match (min, buf.drain(..).min_by(&cmp)) {
+                        (None, None) => None,
+                        (None, Some(m)) => Some(m),
+                        (Some(m), None) => Some(m),
+                        (Some(m1), Some(m2)) => Some(cmp::min_by(m1, m2, &cmp)),
+                    };
+                    self.out.send(min).unwrap();
+                    min = None;
+                    match self.notify_done.recv() {
+                        Ok(ServerCommand::Start) => (),
+                        Ok(ServerCommand::Stop) => panic!("Tried to stop already stopped server"),
+                        _ => panic!("Server failed to recv"),
+                    }
+                }
+            }
         }
     }
 }
