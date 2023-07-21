@@ -1,16 +1,9 @@
 //! The part of the solution concerned with the optimal partitions and general implementation
 //! of the dynamic program.
 
-use std::{
-    cmp::{self, Ordering},
-    mem::MaybeUninit,
-};
+use std::{cmp, mem::MaybeUninit};
 
-use crate::{
-    dof,
-    prelude::*,
-    stack::{HeapStack, Stack},
-};
+use crate::{dof, prelude::*, stack::Stack};
 
 use ndarray::{s, Array2};
 
