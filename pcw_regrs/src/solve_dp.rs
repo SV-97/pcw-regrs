@@ -87,98 +87,73 @@ impl<F: Fn(usize, usize, DegreeOfFreedom) -> OFloat> BellmanBuilder<F> {
         }
     }
 
-    /// Find the minimum value from a stack. Pops all values off the stack.
-    fn min_from_stack(
-        solutions: &mut HeapStack<MinimizationSolution<(isize, usize), OFloat>>,
-    ) -> MinimizationSolution<(isize, usize), OFloat> {
-        /*
-        std::thread::scope(|s| {
-            let (mut s1, mut s2) = solutions.split();
-            let cmp_by_energy = |MinimizationSolution { min: energy_1, .. }: &MinimizationSolution<
-            _,
-            OFloat,
-        >,
-                             MinimizationSolution { min: energy_2, .. }: &MinimizationSolution<
-            _,
-            OFloat,
-        >| { energy_1.cmp(&energy_2) };
-            let m1 = s.spawn(move || s1.pop_iter().min_by(&cmp_by_energy).unwrap());
-            let m2 = s2.pop_iter().min_by(&cmp_by_energy).unwrap();
-            let res = std::cmp::min_by(m1.join().unwrap(), m2, &cmp_by_energy);
-            res
-        })*/
-        let cmp_by_energy = |MinimizationSolution { min: energy_1, .. }: &MinimizationSolution<
-            _,
-            OFloat,
-        >,
-                             MinimizationSolution { min: energy_2, .. }: &MinimizationSolution<
-            _,
-            OFloat,
-        >| { energy_1.cmp(&energy_2) };
-        solutions.pop_iter().min_by(cmp_by_energy).unwrap()
-    }
-
     /// Immutable core algorithm of `step`
-    fn step_core(
+    fn step_core<M>(
         &self,
         right_boundary: usize,
         k_dof_plus: usize,
         max_seg_dof: usize,
-        solutions: &mut HeapStack<MinimizationSolution<(isize, usize), OFloat>>,
-    ) -> MinimizationSolution<(isize, usize), OFloat> {
-        for l in 0..=right_boundary {
-            let p_r_min = cmp::max(k_dof_plus.saturating_sub(l + 1), 1);
-            let p_r_max = min3(
-                right_boundary + 1 - l, // p_r can't be more larger than the number of data point in the segment
-                max_seg_dof, // it's also restricted by the maximal dof we allow on any segment
-                k_dof_plus - 1, // and of course the total dof count minus 1 since 1 dof has to be spent on p_l
-            );
-            for p_r in p_r_min..=p_r_max {
-                let p_l = k_dof_plus - p_r;
-                let d = (self.training_error)(
-                    l + 1,
-                    right_boundary + 1,
-                    DegreeOfFreedom::try_from(p_r).unwrap(),
+        minimizer: &mut M,
+    ) -> MinimizationSolution<(isize, usize), OFloat>
+    where
+        M: Minimizer<MinimizationSolution<(isize, usize), ordered_float::OrderedFloat<f64>>>,
+    {
+        minimizer.minimize(move |mut minh| {
+            for l in 0..=right_boundary {
+                let p_r_min = cmp::max(k_dof_plus.saturating_sub(l + 1), 1);
+                let p_r_max = min3(
+                    right_boundary + 1 - l, // p_r can't be more larger than the number of data point in the segment
+                    max_seg_dof, // it's also restricted by the maximal dof we allow on any segment
+                    k_dof_plus - 1, // and of course the total dof count minus 1 since 1 dof has to be spent on p_l
                 );
+                for p_r in p_r_min..=p_r_max {
+                    let p_l = k_dof_plus - p_r;
+                    let d = (self.training_error)(
+                        l + 1,
+                        right_boundary + 1,
+                        DegreeOfFreedom::try_from(p_r).unwrap(),
+                    );
 
-                // `p_l - 1` to account for offset in bellman array indexing
-                if let Some(energy) = self.energies[[p_l - 1, l]] {
-                    solutions.push_unchecked(MinimizationSolution {
-                        arg_min: (l as isize, p_l),
-                        min: energy + d,
+                    // `p_l - 1` to account for offset in bellman array indexing
+                    if let Some(energy) = self.energies[[p_l - 1, l]] {
+                        minh.add_to_min(MinimizationSolution {
+                            arg_min: (l as isize, p_l),
+                            min: energy + d,
+                        });
+                    }
+                }
+                // handle the case where we approximate the whole segment with a single model: so p_r = k+1, p_l = 0
+                if k_dof_plus
+                    <= std::cmp::min(
+                        right_boundary + 2,
+                        max_seg_dof, // it's also restricted by the maximal dof we allow on any segment
+                    )
+                {
+                    minh.add_to_min(MinimizationSolution {
+                        arg_min: (-1, 0),
+                        min: (self.training_error)(
+                            0,
+                            right_boundary + 1,
+                            DegreeOfFreedom::try_from(k_dof_plus).unwrap(),
+                        ),
                     });
                 }
             }
-            // handle the case where we approximate the whole segment with a single model: so p_r = k+1, p_l = 0
-            if k_dof_plus
-                <= std::cmp::min(
-                    right_boundary + 2,
-                    max_seg_dof, // it's also restricted by the maximal dof we allow on any segment
-                )
-            {
-                solutions.push_unchecked(MinimizationSolution {
-                    arg_min: (-1, 0),
-                    min: (self.training_error)(
-                        0,
-                        right_boundary + 1,
-                        DegreeOfFreedom::try_from(k_dof_plus).unwrap(),
-                    ),
-                });
-            }
-        }
-
-        Self::min_from_stack(solutions)
+        })
     }
 
     /// Solves the minimization problem in the forward step of the bellman equation.
-    pub fn step(
+    pub fn step<M>(
         &mut self,
         right_boundary: usize,
         k_dof_plus: usize, /* k degrees of freedom + 1 */
         max_seg_dof: usize,
-        solutions: &mut HeapStack<MinimizationSolution<(isize, usize), OFloat>>,
-    ) -> MinimizationSolution<(isize, usize), OFloat> {
-        let res = self.step_core(right_boundary, k_dof_plus, max_seg_dof, solutions);
+        minimizer: &mut M,
+    ) -> MinimizationSolution<(isize, usize), OFloat>
+    where
+        M: Minimizer<MinimizationSolution<(isize, usize), ordered_float::OrderedFloat<f64>>>,
+    {
+        let res = self.step_core(right_boundary, k_dof_plus, max_seg_dof, minimizer);
         self.store_energy(
             k_dof_plus, // TODO: make this unchecked
             right_boundary,
@@ -249,10 +224,15 @@ impl OptimalJumpData {
 
         let mut prev_cuts = Array2::from_elem((max_total_dof - 1, data_len), None);
 
-        // a stack onto which we push all the partial `ls`, `p_l`s and energies before finding their minimum
-        // TODO: verify the actually correct size for this stack. The current is guaranteed to be large enough
-        // but it uses a rather bad bound.
-        let mut solutions = Stack::with_capacity(data_len * max_total_dof);
+        #[rustfmt::skip]
+        let cmp = |
+            MinimizationSolution { min: energy_1, .. }: &MinimizationSolution<_,OFloat,>,
+            MinimizationSolution { min: energy_2, .. }: &MinimizationSolution<_,OFloat,>| {
+                energy_1.cmp(&energy_2)
+        };
+        // let mut minimizer = parallel_minimizer::ParallelMinimizer::new(cmp);
+        let mut minimizer = minimizers::StackMinimizer::new(data_len * max_total_dof, cmp);
+        // let mut minimizer = minimizers::ImmediateMinimizer::new(cmp);
 
         // iteratively solve using bottom-up DP scheme:
         // "for all right segment boundaries"
@@ -260,7 +240,7 @@ impl OptimalJumpData {
             // `r + 2` attains a maximum of `data_len` over all iterations of the outer `r` loop
             for k_dof_plus_one in 2..=cmp::min(r + 2, max_total_dof) {
                 let MinimizationSolution { arg_min, .. } =
-                    energies.step(r, k_dof_plus_one, max_seg_dof, &mut solutions);
+                    energies.step(r, k_dof_plus_one, max_seg_dof, &mut minimizer);
 
                 prev_cuts[[k_dof_plus_one - 2, r + 1]] = {
                     let (l_min, p_l_min) = arg_min;
@@ -275,7 +255,6 @@ impl OptimalJumpData {
                 };
             }
         }
-        // println!("{:?}", &prev_cuts);
 
         OptimalJumpData {
             energies: BellmanTable::try_from(energies).unwrap(),
@@ -496,123 +475,254 @@ fn try_cut_path_to_cut(cut_path: CutPath, n_dofs: DegreeOfFreedom) -> Option<Cut
     }
 }
 
-mod parallel_minimizer {
-    use std::cmp;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
-    use std::sync::mpsc::{channel, Receiver, Sender};
-    use std::sync::MutexGuard;
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::thread::JoinHandle;
+use minimizers::*;
+mod minimizers {
+    #![allow(dead_code)]
 
-    enum ServerCommand {
-        Start,
-        Stop,
+    pub trait MinHandle<T> {
+        fn add_to_min(&mut self, val: T);
     }
 
-    struct MinServer<T> {
-        buffer_select: Arc<AtomicUsize>,
-        buffers: [Arc<Mutex<Vec<T>>>; 2],
-        out: Sender<Option<T>>,
-        notify_done: Receiver<ServerCommand>,
+    /// Provides a context for finding the minimum of a collection of values:
+    /// in the context a bunch of values can be sent to a given handle and when the context
+    /// is destroyed the minimum of all the sent values is returned.
+    pub trait Minimizer<T> {
+        type Handle<'a>: MinHandle<T>;
+        fn minimize<'a>(&'a mut self, func: impl for<'b> FnOnce(Self::Handle<'b>)) -> T;
     }
 
-    pub struct ParallelMinimizer<T> {
-        thread_handle: JoinHandle<()>,
-        buffer_select: Arc<AtomicUsize>,
-        currently_filled: Arc<AtomicUsize>,
-        buffers: [Arc<Mutex<Vec<T>>>; 2],
-        out: Receiver<Option<T>>,
-        notify_done: Sender<ServerCommand>,
-    }
+    pub use immediate_minimizer::*;
+    pub use parallel_minimizer::*;
+    pub use stack_minimizer::*;
 
-    impl<T: Send> ParallelMinimizer<T> {
-        pub fn new<F>(cmp: F) -> ParallelMinimizer<T>
+    mod stack_minimizer {
+        use super::*;
+        use crate::stack::{HeapStack, Stack};
+        use std::cmp::Ordering;
+
+        pub struct StackMinimizer<T: Copy, F> {
+            stack: HeapStack<T>,
+            cmp: F,
+        }
+
+        impl<T, F> StackMinimizer<T, F>
         where
-            F: Fn(&T, &T) -> std::cmp::Ordering + Send + 'static,
-            T: 'static,
+            T: Copy,
+            F: Fn(&T, &T) -> Ordering,
         {
-            let buffer_select = Arc::new(AtomicUsize::new(0));
-            let currently_filled = Arc::new(AtomicUsize::new(0));
-            let buffers = [
-                Arc::new(Mutex::new(Vec::new())),
-                Arc::new(Mutex::new(Vec::new())),
-            ];
-            let (out_send, out_recv) = channel();
-            let (notify_done_send, notify_done_recv) = channel();
-            let server_buffer_select = Arc::clone(&buffer_select);
-            let server_buffers = [Arc::clone(&buffers[0]), Arc::clone(&buffers[1])];
-            let handle = thread::spawn(move || {
-                MinServer {
-                    buffer_select: server_buffer_select,
-                    buffers: server_buffers,
-                    out: out_send,
-                    notify_done: notify_done_recv,
+            pub fn new(stack_size: usize, cmp: F) -> Self {
+                Self {
+                    stack: Stack::with_capacity(stack_size),
+                    cmp: cmp,
                 }
-                .serve(cmp)
-            });
-            Self {
-                thread_handle: handle,
-                buffer_select: buffer_select,
-                currently_filled,
-                buffers,
-                out: out_recv,
-                notify_done: notify_done_send,
             }
         }
 
-        pub fn restart(&mut self) {
-            self.notify_done.send(ServerCommand::Start).unwrap();
+        impl<'a, T, F> MinHandle<T> for &'a mut StackMinimizer<T, F>
+        where
+            T: Copy,
+            F: Fn(&T, &T) -> Ordering,
+        {
+            fn add_to_min(&mut self, val: T) {
+                self.stack.push(val)
+            }
         }
 
-        pub fn add_value(&mut self, val: T) {
-            let write_buffer_idx = self.buffer_select.load(Ordering::Relaxed);
-            let mut buf = self.buffers[write_buffer_idx].lock().unwrap();
-            buf.push(val)
-        }
-
-        pub fn acquire(&mut self) -> MutexGuard<Vec<T>> {
-            let write_buffer_idx = self.buffer_select.load(Ordering::Relaxed);
-            self.buffers[write_buffer_idx].lock().unwrap()
-        }
-
-        pub fn done(&mut self) -> Option<T> {
-            self.notify_done.send(ServerCommand::Stop).unwrap();
-            let out = self.out.recv().unwrap();
-            self.notify_done.send(ServerCommand::Start).unwrap();
-            out
+        impl<T, F> Minimizer<T> for StackMinimizer<T, F>
+        where
+            T: Copy + 'static,
+            F: Fn(&T, &T) -> Ordering + 'static,
+        {
+            type Handle<'a> = &'a mut Self;
+            fn minimize<'a>(&'a mut self, func: impl for<'b> FnOnce(Self::Handle<'b>)) -> T {
+                self.stack.clear(); // make sure the stack is empty
+                func(self);
+                self.stack.pop_iter().min_by(&self.cmp).unwrap()
+            }
         }
     }
 
-    impl<T> MinServer<T> {
-        pub fn serve(self, cmp: impl Fn(&T, &T) -> std::cmp::Ordering) {
-            let mut min = None;
-            loop {
-                let write_buffer_idx = 1 ^ self.buffer_select.fetch_xor(1, Ordering::Relaxed);
-                let mut buf = self.buffers[write_buffer_idx].lock().unwrap();
-                min = match (min, buf.drain(..).min_by(&cmp)) {
-                    (None, None) => None,
-                    (None, Some(m)) => Some(m),
-                    (Some(m), None) => Some(m),
-                    (Some(m1), Some(m2)) => Some(cmp::min_by(m1, m2, &cmp)),
+    mod immediate_minimizer {
+        use super::*;
+        use std::cmp::Ordering;
+
+        pub struct ImmediateMinimizer<T: Copy, F> {
+            current_min: Option<T>,
+            cmp: F,
+        }
+
+        impl<T, F> ImmediateMinimizer<T, F>
+        where
+            T: Copy,
+            F: Fn(&T, &T) -> Ordering,
+        {
+            pub fn new(cmp: F) -> Self {
+                Self {
+                    current_min: None,
+                    cmp,
+                }
+            }
+        }
+
+        impl<'a, T, F> MinHandle<T> for &'a mut ImmediateMinimizer<T, F>
+        where
+            T: Copy,
+            F: Fn(&T, &T) -> Ordering,
+        {
+            fn add_to_min(&mut self, val: T) {
+                self.current_min = match self.current_min {
+                    Some(current) => Some(std::cmp::min_by(current, val, &self.cmp)),
+                    None => Some(val),
                 };
-                if let Ok(ServerCommand::Stop) = self.notify_done.try_recv() {
-                    // run min over buffer that might've been written in the meantime
-                    let mut buf = self.buffers[1 ^ write_buffer_idx].lock().unwrap();
-                    min = match (min, buf.drain(..).min_by(&cmp)) {
-                        (None, None) => None,
-                        (None, Some(m)) => Some(m),
-                        (Some(m), None) => Some(m),
-                        (Some(m1), Some(m2)) => Some(cmp::min_by(m1, m2, &cmp)),
-                    };
-                    self.out.send(min).unwrap();
-                    min = None;
-                    match self.notify_done.recv() {
-                        Ok(ServerCommand::Start) => (),
-                        Ok(ServerCommand::Stop) => panic!("Tried to stop already stopped server"),
-                        _ => panic!("Server failed to recv"),
+            }
+        }
+
+        impl<T, F> Minimizer<T> for ImmediateMinimizer<T, F>
+        where
+            T: Copy + 'static,
+            F: Fn(&T, &T) -> Ordering + 'static,
+        {
+            type Handle<'a> = &'a mut Self;
+            fn minimize<'a>(&'a mut self, func: impl for<'b> FnOnce(Self::Handle<'b>)) -> T {
+                func(self);
+                self.current_min.unwrap()
+            }
+        }
+    }
+
+    mod parallel_minimizer {
+        use super::{MinHandle, Minimizer};
+        use lockfree::channel::spsc;
+        use std::cmp;
+        use std::fmt::Debug;
+        use std::sync::mpsc;
+        use std::thread;
+
+        #[derive(Debug, Copy, Clone)]
+        enum ServerCommand {
+            Start,
+            Stop,
+        }
+
+        struct MinServer<T> {
+            vals: spsc::Receiver<T>,
+            out: mpsc::Sender<T>,
+            notify_done: mpsc::Receiver<ServerCommand>,
+        }
+
+        pub struct ParallelMinimizer<T> {
+            vals: spsc::Sender<T>,
+            out: mpsc::Receiver<T>,
+            notify_done: mpsc::Sender<ServerCommand>,
+        }
+
+        pub struct ParMinHandle<'a, T> {
+            minimizer: &'a mut ParallelMinimizer<T>,
+        }
+
+        impl<'a, T> MinHandle<T> for ParMinHandle<'a, T>
+        where
+            T: Debug + Send + 'static,
+        {
+            fn add_to_min(&mut self, val: T) {
+                self.minimizer.add_to_min(val)
+            }
+        }
+
+        impl<T> Minimizer<T> for ParallelMinimizer<T>
+        where
+            T: Debug + Send + 'static,
+        {
+            type Handle<'a> = ParMinHandle<'a, T>;
+            fn minimize(&'_ mut self, func: impl FnOnce(ParMinHandle<'_, T>)) -> T {
+                self.restart();
+                let handle = ParMinHandle { minimizer: self };
+                func(handle);
+                self.done()
+            }
+        }
+
+        impl<T> ParallelMinimizer<T>
+        where
+            T: Send + Debug + 'static,
+        {
+            pub fn new<F>(cmp: F) -> ParallelMinimizer<T>
+            where
+                F: Fn(&T, &T) -> std::cmp::Ordering + Send + 'static,
+            {
+                let (vals_send, vals_recv) = spsc::create();
+                let (out_send, out_recv) = mpsc::channel();
+                let (notify_done_send, notify_done_recv) = mpsc::channel();
+                let _handle = thread::spawn(move || {
+                    MinServer {
+                        vals: vals_recv,
+                        out: out_send,
+                        notify_done: notify_done_recv,
                     }
+                    .serve(cmp)
+                });
+                Self {
+                    vals: vals_send,
+                    out: out_recv,
+                    notify_done: notify_done_send,
+                }
+            }
+
+            fn restart(&mut self) {
+                self.notify_done.send(ServerCommand::Start).unwrap();
+            }
+
+            fn add_to_min(&mut self, val: T) {
+                self.vals.send(val).unwrap()
+            }
+
+            fn done(&mut self) -> T {
+                self.notify_done.send(ServerCommand::Stop).unwrap();
+                let out = self.out.recv().unwrap();
+                out
+            }
+        }
+
+        impl<T> MinServer<T> {
+            pub fn serve(mut self, cmp: impl Fn(&T, &T) -> std::cmp::Ordering) {
+                let mut current_min = self.blocking_recv();
+                'serve: loop {
+                    current_min = match self.vals.recv() {
+                        Ok(new_val) => cmp::min_by(current_min, new_val, &cmp),
+                        Err(_) => current_min,
+                    };
+                    if let Ok(ServerCommand::Stop) = self.notify_done.recv() {
+                        // receive all remaining vals
+                        while let Ok(new_val) = self.vals.recv() {
+                            current_min = cmp::min_by(current_min, new_val, &cmp);
+                        }
+                        self.out.send(current_min).unwrap();
+                        match self.notify_done.recv() {
+                            Ok(ServerCommand::Start) => {
+                                current_min = self.blocking_recv();
+                            }
+                            Ok(ServerCommand::Stop) => {
+                                panic!("Tried to stop already stopped server")
+                            }
+                            Err(_) => {
+                                // Partner hung up, we'll shut down
+                                break 'serve;
+                            }
+                        }
+                    }
+                }
+            }
+
+            pub fn blocking_recv(&mut self) -> T {
+                loop {
+                    // busy wait for first value
+                    match self.vals.recv() {
+                        Ok(new_val) => break new_val,
+                        _ => (),
+                    }
+                    // Indicate to the processor that we're currently
+                    // waiting even if it's for a veery short while
+                    std::hint::spin_loop();
                 }
             }
         }
