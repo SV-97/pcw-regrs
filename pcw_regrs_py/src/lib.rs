@@ -18,6 +18,7 @@ use pyo3::{exceptions::PyRuntimeError, prelude::*, types::PyBytes};
 use serde::{de, ser::SerializeStruct, Deserialize, Serialize};
 
 type Float = f64;
+type OFloat = OrderedFloat<f64>;
 
 #[pyfunction]
 // #[args(max_total_dof = "None", max_seg_dof = "None", weights = "None")]
@@ -54,17 +55,17 @@ pub fn fit_pcw_poly(
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Solution {
-    sol: Option<rs::Solution>,
+    sol: Option<rs::Solution<OFloat>>,
 }
 
 impl Solution {
-    pub fn from_rs(sol: rs::Solution) -> Self {
+    pub fn from_rs(sol: rs::Solution<OFloat>) -> Self {
         Self { sol: Some(sol) }
     }
 }
 
 impl Solution {
-    fn sol<'a>(&'a self) -> Option<rs::Solution> {
+    fn sol<'a>(&'a self) -> Option<rs::Solution<OFloat>> {
         self.sol.clone()
     }
 }
@@ -217,7 +218,7 @@ pub struct ScoredPolyModel {
 }
 
 impl ScoredPolyModel {
-    pub fn from_rs(scored_model: rs::ScoredModel) -> Self {
+    pub fn from_rs(scored_model: rs::ScoredModel<OFloat>) -> Self {
         let rs::ScoredModel { model, score, .. } = scored_model;
         let (jumps, funcs) = model.into_jumps_and_funcs();
         ScoredPolyModel {
@@ -316,7 +317,7 @@ impl<'de> de::Deserialize<'de> for PcwConstFn {
 }
 
 impl PcwConstFn {
-    pub fn from_rs(pcw_fn: impl PcwFn<OrderedFloat<Float>, OrderedFloat<Float>>) -> Self {
+    pub fn from_rs(pcw_fn: impl PcwFn<OFloat, OFloat>) -> Self {
         let (jumps, funcs) = pcw_fn.into_jumps_and_funcs();
         PcwConstFn {
             jump_points: Python::with_gil(|py| {

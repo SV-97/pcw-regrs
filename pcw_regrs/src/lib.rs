@@ -11,8 +11,6 @@ use cv::cv_scores_and_models;
 use derive_new::new;
 use itertools::Itertools;
 use ndarray::Array2;
-use num_traits::FromPrimitive;
-use ordered_float::OrderedFloat;
 use pcw_fn::{FunctorRef, PcwFn, VecPcwFn};
 use polyfit_residuals as pr;
 pub use prelude::*;
@@ -31,23 +29,29 @@ const CV_PREDICTION_COUNT: usize = 1;
 /// model functions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Solution {
-    model_func: ModelFunc,
-    cv_func: CvFunc,
+pub struct Solution<T> {
+    model_func: ModelFunc<T>,
+    cv_func: CvFunc<T>,
     /// CV function downsampled to the jumps of the model function.
-    down_cv_func: CvFunc,
+    down_cv_func: CvFunc<T>,
 }
 
 /// Calculate all residual errors of the non-pcw fits
-fn all_residuals(
-    ts: &ValidTimeSeriesSample,
+fn all_residuals<T>(
+    ts: &ValidTimeSeriesSample<T>,
     up: &MatchedUserParams,
-) -> impl Fn(usize, usize, DegreeOfFreedom) -> OFloat {
+) -> impl Fn(usize, usize, DegreeOfFreedom) -> T
+where
+    T: OrdFloat,
+{
     /// Calculate all residual errors of the non-pcw fits. Returns the raw residual data
-    fn all_residuals_raw(
-        timeseries_sample: &ValidTimeSeriesSample,
+    fn all_residuals_raw<S>(
+        timeseries_sample: &ValidTimeSeriesSample<S>,
         user_params: &MatchedUserParams,
-    ) -> Vec<Array2<OFloat>> {
+    ) -> Vec<Array2<S>>
+    where
+        S: OrdFloat,
+    {
         let max_degree = user_params.max_seg_dof.to_deg();
         let xs = timeseries_sample.times();
         let ys = timeseries_sample.response();
@@ -68,7 +72,7 @@ fn all_residuals(
             }
         }
     }
-    let res = all_residuals_raw(&ts, &up);
+    let res = all_residuals_raw(ts, up);
     move |segment_start_idx, segment_stop_idx, dof| {
         res[segment_start_idx][[segment_stop_idx - segment_start_idx, usize::from(dof) - 1]]
     }
@@ -78,10 +82,13 @@ fn all_residuals(
 ///
 /// The full model should locally spend no more than `max_seg_dof` degrees of freedom
 /// and globally no more than `max_total_dof` for the full model.
-pub fn try_fit_pcw_poly(
-    timeseries_sample: &TimeSeriesSample,
+pub fn try_fit_pcw_poly<T>(
+    timeseries_sample: &TimeSeriesSample<T::Base>,
     user_params: &UserParams,
-) -> Result<Solution, FitError> {
+) -> Result<Solution<T>, FitError>
+where
+    T: OrdFloat,
+{
     // Check the input timeseries for any potential problems
     let ts = ValidTimeSeriesSample::try_from(timeseries_sample)?;
     // Resolve optional parameters
@@ -93,26 +100,29 @@ pub fn try_fit_pcw_poly(
 
 /// A model for a timeseries and its CV score.
 #[derive(new, Debug, Eq, PartialEq, Clone)]
-pub struct ScoredModel {
+pub struct ScoredModel<T> {
     /// A piecewise function where the domain are jump indices and the codomain models (so
     /// elements of Ω).
     pub model: VecPcwFn<usize, SegmentModelSpec>,
     /// The cross validation score of the full model.
-    pub score: OFloat,
+    pub score: T,
 }
 
 /// An optimal model with respect to the one standard error rule.
-pub type OseBestModel = ScoredModel;
+pub type OseBestModel<T> = ScoredModel<T>;
 
 /// An optimal model minimizing the CV score.
-pub type CvMinimizerModel = ScoredModel;
+pub type CvMinimizerModel<T> = ScoredModel<T>;
 
-impl Solution {
+impl<T> Solution<T>
+where
+    T: OrdFloat,
+{
     pub fn try_new(
-        timeseries_sample: &ValidTimeSeriesSample,
+        timeseries_sample: &ValidTimeSeriesSample<T>,
         user_params: &MatchedUserParams,
-        training_err: impl Fn(usize, usize, DegreeOfFreedom) -> OFloat,
-    ) -> Result<Solution, FitError> {
+        training_err: impl Fn(usize, usize, DegreeOfFreedom) -> T,
+    ) -> Result<Self, FitError> {
         // Solve dynamic program
         let dp_solution = solve_dp(timeseries_sample, user_params, &training_err);
         // Determine crossvalidation and model functions; so the functions mapping hyperparameters to the
@@ -140,7 +150,7 @@ impl Solution {
     }
 
     /// Return the best model w.r.t. the "one standard error" rule.
-    pub fn ose_best(&self) -> Option<OseBestModel> {
+    pub fn ose_best(&self) -> Option<OseBestModel<T>> {
         let Annotated {
             metadata: se_min,
             data: cv_min,
@@ -159,21 +169,18 @@ impl Solution {
             // reverse since we want the highest gamma possible
             .rev()
             // find first model within one se of cv_min
-            .find(|(cv, _model)| {
-                OrderedFloat::try_from((cv.data - cv_min).abs()).unwrap()
-                    <= OFloat::from_usize(1).unwrap() * se_min
-            })
+            .find(|(cv, _model)| (cv.data - cv_min).abs() <= se_min)
             .unwrap();
         Some(OseBestModel::new(selected_model.clone(), selected_cv.data))
     }
 
     /// Return the global minimizer of the CV score.
-    pub fn cv_minimizer(&self) -> Option<CvMinimizerModel> {
+    pub fn cv_minimizer(&self) -> Option<CvMinimizerModel<T>> {
         self.n_cv_minimizers(1).and_then(|mut vec| vec.pop())
     }
 
     /// Return the models corresponding to the `n_best` lowest CV scores.
-    pub fn n_cv_minimizers(&self, n_best: usize) -> Option<Vec<CvMinimizerModel>> {
+    pub fn n_cv_minimizers(&self, n_best: usize) -> Option<Vec<CvMinimizerModel<T>>> {
         // Sort models in ascending order and pick out the ones with the lowest CV score
         let best_models = self
             .down_cv_func
@@ -189,18 +196,18 @@ impl Solution {
 
     /// The cross validation function mapping hyperparameters γ to CV scores (and their
     /// approximate standard errors).
-    pub fn cv_func(&self) -> &CvFunc {
+    pub fn cv_func(&self) -> &CvFunc<T> {
         &self.cv_func
     }
 
     /// The cross validation function downsampled to the jumps of the model function.
-    pub fn downsampled_cv_func(&self) -> &CvFunc {
+    pub fn downsampled_cv_func(&self) -> &CvFunc<T> {
         &self.down_cv_func
     }
 
     /// The model function mapping hyperparameters γ to the corresponding solutions of
     /// the penalized partition problem.
-    pub fn model_func(&self) -> &ModelFunc {
+    pub fn model_func(&self) -> &ModelFunc<T> {
         &self.model_func
     }
 }
@@ -215,10 +222,15 @@ mod tests {
         use crate::solve_dp::{BellmanTable, CutPath, OptimalJumpData, RefDofPartition};
         use ndarray::arr2;
 
-        fn fit(raw_data: Vec<f64>, up: UserParams) -> OptimalJumpData {
+        fn fit<T>(raw_data: Vec<T::Base>, up: UserParams) -> OptimalJumpData<T>
+        where
+            T: OrdFloat,
+        {
+            use num_traits::FromPrimitive;
             let times = (0..raw_data.len())
                 .into_iter()
-                .map(|x| x as f64)
+                .map(T::Base::from_usize)
+                .map(Option::unwrap)
                 .collect_vec();
             let timeseries_sample = TimeSeriesSample::try_new(&times, &raw_data, None).unwrap();
             let ts = ValidTimeSeriesSample::try_from(&timeseries_sample).unwrap();

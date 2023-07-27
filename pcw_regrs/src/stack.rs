@@ -33,12 +33,7 @@ where
 {
     /// Split the stack into two of approximately equal size. This empties the current stack.
     /// Former TOS is now on the right return value.
-    pub fn split(
-        &mut self,
-    ) -> (
-        Stack<T, &mut [MaybeUninit<T>]>,
-        Stack<T, &mut [MaybeUninit<T>]>,
-    ) {
+    pub fn split(&mut self) -> [Stack<T, &mut [MaybeUninit<T>]>; 2] {
         let buffer_r_len = self.push_count / 2;
         println!(
             "splitting {} into {} and {}",
@@ -63,7 +58,7 @@ where
             phantom: PhantomData,
         };
         self.push_count = 0;
-        (stack_l, stack_r)
+        [stack_l, stack_r]
     }
 }
 
@@ -380,7 +375,7 @@ mod tests {
             s.push(2 * i + 1);
         }
         {
-            let (s1, s2) = s.split();
+            let [s1, s2] = s.split();
             assert_eq!(s1.filled(), &[15, 13, 11, 9,]);
             assert_eq!(s2.filled(), &[7, 5, 3, 1,]);
         }
@@ -394,7 +389,7 @@ mod tests {
             s.push(2 * i + 1);
         }
         {
-            let (s1, s2) = s.split();
+            let [s1, s2] = s.split();
             assert_eq!(s1.filled(), &[17, 15, 13, 11, 9,]);
             assert_eq!(s2.filled(), &[7, 5, 3, 1,]);
         }

@@ -1,5 +1,5 @@
 use super::annotate::Annotated;
-use num_traits::real::Real;
+use num_traits::{real::Real, Float, FromPrimitive};
 use ordered_float::OrderedFloat;
 use pcw_fn::VecPcwFn;
 use std::{num::NonZeroUsize, ops::Index};
@@ -8,10 +8,37 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub type Float = f64;
+/// A marker trait that we use to wrap all the properties we internally need of a floating point type
+pub trait RawFloat:
+    Float + 'static + Send + Sync + FromPrimitive + std::iter::Sum + Default
+{
+}
+
 /// # Safety
-/// This has to have the same layout as Float (transparent repr)
-pub type OFloat = OrderedFloat<Float>;
+/// The `Base` type has to have the same layout as the type implementing this trait. That is the
+/// assertion
+/// `assert_eq!(std::alloc::Layout::<T>::new(), std::alloc::Layout::<<T as OrdFloat>::Base>::new());`
+/// must hold whenever `T: OrdFloat`.
+pub unsafe trait OrdFloat: RawFloat + Ord {
+    // Float + 'static + Send + FromPrimitive
+    type Base: RawFloat;
+}
+
+impl RawFloat for f64 {}
+impl RawFloat for OrderedFloat<f64> {}
+unsafe impl OrdFloat for OrderedFloat<f64> {
+    /// # Safety
+    /// OrderedFloat has transparent repr so we're guaranteed the same layout between the wrapped and unwrapped versions
+    type Base = f64;
+}
+
+impl RawFloat for f32 {}
+impl RawFloat for OrderedFloat<f32> {}
+unsafe impl OrdFloat for OrderedFloat<f32> {
+    /// # Safety
+    /// OrderedFloat has transparent repr so we're guaranteed the same layout between the wrapped and unwrapped versions
+    type Base = f32;
+}
 
 // Maybe this should be a [std::num::NonZeroU64] instead.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -46,6 +73,8 @@ impl DegreeOfFreedom {
         }
     }
 
+    /// # Safety
+    /// The parameter [n] has to be nonzero
     pub unsafe fn new_unchecked(n: usize) -> Self {
         DegreeOfFreedom(unsafe { NonZeroUsize::new_unchecked(n) })
     }
@@ -80,11 +109,11 @@ pub struct SegmentModelSpec {
 
 /// Maps each penalty γ to the corresponding optimal models given as piecewise model
 /// specifications: the arguments of the "inner" piecewise function are jump indices.
-pub type ModelFunc = VecPcwFn<OFloat, VecPcwFn<usize, SegmentModelSpec>>;
+pub type ModelFunc<T> = VecPcwFn<T, VecPcwFn<usize, SegmentModelSpec>>;
 
 /// A function mapping hyperparameter values to CV scores; each score being annotated with
 /// its standard error.
-pub type CvFunc = VecPcwFn<OFloat, Annotated<OFloat, OFloat>>;
+pub type CvFunc<T> = VecPcwFn<T, Annotated<T, T>>;
 
 #[derive(Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct UserParams {
@@ -94,7 +123,10 @@ pub struct UserParams {
 
 impl UserParams {
     /// Returns None if input timeseries has length 0.
-    pub fn match_to_timeseries(self, ts: &ValidTimeSeriesSample) -> MatchedUserParams {
+    pub fn match_to_timeseries<T>(self, ts: &ValidTimeSeriesSample<T>) -> MatchedUserParams
+    where
+        T: OrdFloat,
+    {
         let data_len: NonZeroUsize = ts.len();
         let max_total_dof = if let Some(max_dof) = self.max_total_dof {
             std::cmp::min(data_len, max_dof)
@@ -120,19 +152,18 @@ pub struct MatchedUserParams {
 
 #[derive(Debug, Clone, PartialEq)]
 // TODO: add other lifetime params
-pub struct TimeSeriesSample<'a> {
+pub struct TimeSeriesSample<'a, T: Float> {
     /// Has to have same length as `response` and `weights`.
-    times: &'a [Float],
-    response: &'a [Float],
-    weights: Option<&'a [Float]>,
+    times: &'a [T],
+    response: &'a [T],
+    weights: Option<&'a [T]>,
 }
 
-impl<'a> TimeSeriesSample<'a> {
-    pub fn try_new(
-        times: &'a [Float],
-        response: &'a [Float],
-        weights: Option<&'a [Float]>,
-    ) -> Option<Self> {
+impl<'a, T> TimeSeriesSample<'a, T>
+where
+    T: Float,
+{
+    pub fn try_new(times: &'a [T], response: &'a [T], weights: Option<&'a [T]>) -> Option<Self> {
         if let Some(w) = weights && w.len() != response.len() {
             None
         } else if times.len() != response.len() {
@@ -152,29 +183,38 @@ impl<'a> TimeSeriesSample<'a> {
 }
 
 /// A nonempty, NaN-free time series sample
-pub struct ValidTimeSeriesSample<'a> {
+pub struct ValidTimeSeriesSample<'a, T>
+where
+    T: OrdFloat,
+{
     /// Has to have same length as `response` and `weights` and be nonempty.
-    times: &'a [OFloat],
-    response: &'a [OFloat],
-    weights: Option<&'a [OFloat]>,
+    times: &'a [T],
+    response: &'a [T],
+    weights: Option<&'a [T]>,
 }
 
-impl<'a> ValidTimeSeriesSample<'a> {
-    pub fn times(&self) -> &'a [OFloat] {
+impl<'a, T> ValidTimeSeriesSample<'a, T>
+where
+    T: OrdFloat,
+{
+    pub fn times(&self) -> &'a [T] {
         self.times
     }
-    pub fn response(&self) -> &'a [OFloat] {
+    pub fn response(&self) -> &'a [T] {
         self.response
     }
-    pub fn weights(&self) -> Option<&'a [OFloat]> {
+    pub fn weights(&self) -> Option<&'a [T]> {
         self.weights
     }
 }
 
-impl<'a> TryFrom<&'a TimeSeriesSample<'a>> for ValidTimeSeriesSample<'a> {
+impl<'a, T> TryFrom<&'a TimeSeriesSample<'a, T::Base>> for ValidTimeSeriesSample<'a, T>
+where
+    T: OrdFloat,
+{
     type Error = FitError;
 
-    fn try_from(timeseries_sample: &'a TimeSeriesSample<'a>) -> Result<Self, Self::Error> {
+    fn try_from(timeseries_sample: &'a TimeSeriesSample<'a, T::Base>) -> Result<Self, Self::Error> {
         if timeseries_sample.is_empty() {
             Err(FitError::EmptyData)
         } else if timeseries_sample.times.iter().any(|x| x.is_nan()) {
@@ -193,14 +233,17 @@ impl<'a> TryFrom<&'a TimeSeriesSample<'a>> for ValidTimeSeriesSample<'a> {
     }
 }
 
-impl<'a> ValidTimeSeriesSample<'a> {
+impl<'a, T> ValidTimeSeriesSample<'a, T>
+where
+    T: OrdFloat,
+{
     pub fn len(&self) -> NonZeroUsize {
         unsafe { NonZeroUsize::new_unchecked(self.times.len()) }
     }
 
     pub fn slice<Idx>(&self, index: Idx) -> Self
     where
-        [OFloat]: Index<Idx, Output = [OFloat]>,
+        [T]: Index<Idx, Output = [T]>,
         Idx: Clone,
     {
         ValidTimeSeriesSample {
