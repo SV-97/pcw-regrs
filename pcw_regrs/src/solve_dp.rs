@@ -22,11 +22,14 @@ pub enum CutPath {
 
 /// Represents a solution of the key dynamic program.
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct OptimalJumpData {
+pub struct OptimalJumpData<T>
+where
+    T: OrdFloat,
+{
     /// `energies[[k,n]]` contains the optimal energy when approximating `data[0..=n]` with exactly
     /// `k + 1` degrees of freedom.
     // TODO: optimize by exploiting triangle structure
-    pub energies: BellmanTable,
+    pub energies: BellmanTable<T>,
     /// Index `[[k,r]]` will tell us the index of the element after the previous cut,
     /// and how many degrees of freedom may still be expended on the left segment if
     /// we start with `data[0..=r]` and `k + 1` degrees of freedom.
@@ -41,14 +44,17 @@ pub struct OptimalJumpData {
 }
 
 /// Solves the core dynamic program
-pub fn solve_dp(
-    timeseries_sample: &ValidTimeSeriesSample,
+pub fn solve_dp<T>(
+    timeseries_sample: &ValidTimeSeriesSample<T>,
     user_params: &MatchedUserParams,
     // Calculates the residual error / training error of a (non-pcw) model fit given a
     // segment_start_idx, segment_stop_idx (into the timeseries sample; inclusive) and
     // the number of degrees of freedom of the approximation.
-    training_error: impl Fn(usize, usize, DegreeOfFreedom) -> OFloat,
-) -> OptimalJumpData {
+    training_error: impl Fn(usize, usize, DegreeOfFreedom) -> T,
+) -> OptimalJumpData<T>
+where
+    T: OrdFloat,
+{
     OptimalJumpData::from_errors(timeseries_sample, user_params, training_error)
 }
 
@@ -59,15 +65,19 @@ fn min3<T: Ord>(a: T, b: T, c: T) -> T {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct BellmanBuilder<F> {
-    energies: Array2<Option<OFloat>>,
+struct BellmanBuilder<F, T> {
+    energies: Array2<Option<T>>,
     /// Maps segment start and end indices (both inclusive) of the timeseries
     /// and a number of degrees of freedom into the residual error of the
     /// model with the given number of dofs on that segment.
     training_error: F,
 }
 
-impl<F: Fn(usize, usize, DegreeOfFreedom) -> OFloat> BellmanBuilder<F> {
+impl<F, T> BellmanBuilder<F, T>
+where
+    T: OrdFloat,
+    F: Fn(usize, usize, DegreeOfFreedom) -> T,
+{
     pub fn new(max_total_dof: DegreeOfFreedom, data_len: usize, training_error: F) -> Self {
         let mut energies = Array2::from_elem((usize::from(max_total_dof), data_len), None);
         // apply initial conditions
@@ -75,7 +85,7 @@ impl<F: Fn(usize, usize, DegreeOfFreedom) -> OFloat> BellmanBuilder<F> {
             *energy = Some(training_error(0, segment_end_idx, DegreeOfFreedom::one()));
         }
         Self {
-            energies: energies,
+            energies,
             training_error,
         }
     }
@@ -87,9 +97,9 @@ impl<F: Fn(usize, usize, DegreeOfFreedom) -> OFloat> BellmanBuilder<F> {
         k_dof_plus: usize,
         max_seg_dof: usize,
         minimizer: &mut M,
-    ) -> MinimizationSolution<(isize, usize), OFloat>
+    ) -> MinimizationSolution<(isize, usize), T>
     where
-        M: Minimizer<MinimizationSolution<(isize, usize), ordered_float::OrderedFloat<f64>>>,
+        M: Minimizer<MinimizationSolution<(isize, usize), T>>,
     {
         minimizer.minimize(move |mut minh| {
             for l in 0..=right_boundary {
@@ -142,9 +152,9 @@ impl<F: Fn(usize, usize, DegreeOfFreedom) -> OFloat> BellmanBuilder<F> {
         k_dof_plus: usize, /* k degrees of freedom + 1 */
         max_seg_dof: usize,
         minimizer: &mut M,
-    ) -> MinimizationSolution<(isize, usize), OFloat>
+    ) -> MinimizationSolution<(isize, usize), T>
     where
-        M: Minimizer<MinimizationSolution<(isize, usize), ordered_float::OrderedFloat<f64>>>,
+        M: Minimizer<MinimizationSolution<(isize, usize), T>>,
     {
         let res = self.step_core(right_boundary, k_dof_plus, max_seg_dof, minimizer);
         self.store_energy(
@@ -156,25 +166,26 @@ impl<F: Fn(usize, usize, DegreeOfFreedom) -> OFloat> BellmanBuilder<F> {
     }
 
     // pub fn store_energy(&mut self, dofs: DegreeOfFreedom, right_boundary: usize, min_energy: OFloat) {
-    pub fn store_energy(
-        &mut self,
-        k_dof_plus_one: usize,
-        right_boundary: usize,
-        min_energy: OFloat,
-    ) {
+    pub fn store_energy(&mut self, k_dof_plus_one: usize, right_boundary: usize, min_energy: T) {
         self.energies[[k_dof_plus_one - 1, right_boundary + 1]] = Some(min_energy);
         // self.energies[[usize::from(dofs), right_boundary + 1]] = Some(value);
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BellmanTable {
-    pub(crate) energies: Array2<Option<OFloat>>,
+pub struct BellmanTable<T>
+where
+    T: OrdFloat,
+{
+    pub(crate) energies: Array2<Option<T>>,
 }
 
-impl<F> TryFrom<BellmanBuilder<F>> for BellmanTable {
+impl<F, T> TryFrom<BellmanBuilder<F, T>> for BellmanTable<T>
+where
+    T: OrdFloat,
+{
     type Error = ();
-    fn try_from(value: BellmanBuilder<F>) -> Result<Self, Self::Error> {
+    fn try_from(value: BellmanBuilder<F, T>) -> Result<Self, Self::Error> {
         // TODO: verify that table is complete
         Ok(BellmanTable {
             energies: value.energies,
@@ -182,7 +193,10 @@ impl<F> TryFrom<BellmanBuilder<F>> for BellmanTable {
     }
 }
 
-impl BellmanTable {
+impl<T> BellmanTable<T>
+where
+    T: OrdFloat,
+{
     pub fn data_len(&self) -> usize {
         self.energies.shape()[1]
     }
@@ -193,7 +207,10 @@ struct MinimizationSolution<ArgMin, Min> {
     min: Min,
 }
 
-impl OptimalJumpData {
+impl<T> OptimalJumpData<T>
+where
+    T: OrdFloat,
+{
     /// Construct [OptimalJumpData] - so essentially a piecewise approximation to some data - from non-piecewise training errors
     /// by solving the DP.
     ///
@@ -205,9 +222,9 @@ impl OptimalJumpData {
     ///     freedom `dof` to the error made by a `dof` degree of freedom model on
     ///     `timeseries_sample[segment_start_idx..=segment_end_idx]`.
     pub fn from_errors(
-        timeseries_sample: &ValidTimeSeriesSample,
+        timeseries_sample: &ValidTimeSeriesSample<T>,
         user_params: &MatchedUserParams,
-        training_error: impl Fn(usize, usize, DegreeOfFreedom) -> OFloat,
+        training_error: impl Fn(usize, usize, DegreeOfFreedom) -> T,
     ) -> Self {
         let data_len = usize::from(timeseries_sample.len());
         let max_total_dof = usize::from(user_params.max_total_dof);
@@ -219,13 +236,14 @@ impl OptimalJumpData {
 
         #[rustfmt::skip]
         let cmp = |
-            MinimizationSolution { min: energy_1, .. }: &MinimizationSolution<_,OFloat,>,
-            MinimizationSolution { min: energy_2, .. }: &MinimizationSolution<_,OFloat,>| {
-                energy_1.cmp(&energy_2)
+            MinimizationSolution { min: energy_1, .. }: &MinimizationSolution<_,T,>,
+            MinimizationSolution { min: energy_2, .. }: &MinimizationSolution<_,T,>| {
+                energy_1.cmp(energy_2)
         };
         // let mut minimizer = parallel_minimizer::ParallelMinimizer::new(cmp);
-        let mut minimizer = minimizers::StackMinimizer::new(data_len * max_total_dof, cmp);
+        // let mut minimizer = minimizers::StackMinimizer::new(data_len * max_total_dof, cmp);
         // let mut minimizer = minimizers::ImmediateMinimizer::new(cmp);
+        let mut minimizer = minimizers::VecMinimizer::new(cmp);
 
         // iteratively solve using bottom-up DP scheme:
         // "for all right segment boundaries"
@@ -351,7 +369,7 @@ impl OptimalJumpData {
             // trace backwards through the optimal sequence of jumps starting at the optimal jump for
             // the last considered data point
             cut_buffer.push(cut.cut_idx);
-            dof_buffer.push(DegreeOfFreedom::try_from(cut.right_dofs).unwrap()); // TODO: check if this can be unchecked
+            dof_buffer.push(cut.right_dofs); // TODO: check if this can be unchecked
 
             let mut remaining_dofs = cut.left_dofs;
             // TODO: might have to tweak the condition for higher polynomial orders
@@ -365,8 +383,7 @@ impl OptimalJumpData {
                     match try_cut_path_to_cut(prev_cut_path, remaining_dofs) {
                         Some(prev_cut) => {
                             cut_buffer.push(prev_cut.cut_idx);
-                            dof_buffer
-                                .push(DegreeOfFreedom::try_from(prev_cut.right_dofs).unwrap());
+                            dof_buffer.push(prev_cut.right_dofs);
                             remaining_dofs = prev_cut.left_dofs;
                         }
                         None => break,
@@ -375,7 +392,7 @@ impl OptimalJumpData {
                     break;
                 }
             }
-            dof_buffer.push(DegreeOfFreedom::try_from(remaining_dofs).unwrap());
+            dof_buffer.push(remaining_dofs);
 
             Some(DofPartition {
                 cut_indices: cut_buffer.filled(),
@@ -487,6 +504,7 @@ mod minimizers {
     pub use immediate_minimizer::*;
     pub use parallel_minimizer::*;
     pub use stack_minimizer::*;
+    pub use vec_minimizer::*;
 
     mod stack_minimizer {
         use super::*;
@@ -506,7 +524,7 @@ mod minimizers {
             pub fn new(stack_size: usize, cmp: F) -> Self {
                 Self {
                     stack: Stack::with_capacity(stack_size),
-                    cmp: cmp,
+                    cmp,
                 }
             }
         }
@@ -579,6 +597,59 @@ mod minimizers {
             fn minimize<'a>(&'a mut self, func: impl for<'b> FnOnce(Self::Handle<'b>)) -> T {
                 func(self);
                 self.current_min.unwrap()
+            }
+        }
+    }
+
+    mod vec_minimizer {
+        use super::*;
+        use std::cmp::Ordering;
+
+        pub struct VecMinimizer<T: Copy, F> {
+            stack: Vec<T>,
+            cmp: F,
+        }
+
+        impl<T, F> VecMinimizer<T, F>
+        where
+            T: Copy,
+            F: Fn(&T, &T) -> Ordering,
+        {
+            pub fn new(cmp: F) -> Self {
+                Self {
+                    stack: Vec::new(),
+                    cmp,
+                }
+            }
+
+            pub fn with_capacity(capacity: usize, cmp: F) -> Self {
+                Self {
+                    stack: Vec::with_capacity(capacity),
+                    cmp,
+                }
+            }
+        }
+
+        impl<'a, T, F> MinHandle<T> for &'a mut VecMinimizer<T, F>
+        where
+            T: Copy,
+            F: Fn(&T, &T) -> Ordering,
+        {
+            fn add_to_min(&mut self, val: T) {
+                self.stack.push(val)
+            }
+        }
+
+        impl<T, F> Minimizer<T> for VecMinimizer<T, F>
+        where
+            T: Copy + 'static,
+            F: Fn(&T, &T) -> Ordering + 'static,
+        {
+            type Handle<'a> = &'a mut Self;
+            fn minimize<'a>(&'a mut self, func: impl for<'b> FnOnce(Self::Handle<'b>)) -> T {
+                self.stack.clear(); // make sure the stack is empty
+                func(self);
+                self.stack.drain(..).min_by(&self.cmp).unwrap()
             }
         }
     }
@@ -671,8 +742,7 @@ mod minimizers {
 
             fn done(&mut self) -> T {
                 self.notify_done.send(ServerCommand::Stop).unwrap();
-                let out = self.out.recv().unwrap();
-                out
+                self.out.recv().unwrap()
             }
         }
 
@@ -709,9 +779,8 @@ mod minimizers {
             pub fn blocking_recv(&mut self) -> T {
                 loop {
                     // busy wait for first value
-                    match self.vals.recv() {
-                        Ok(new_val) => break new_val,
-                        _ => (),
+                    if let Ok(new_val) = self.vals.recv() {
+                        break new_val;
                     }
                     // Indicate to the processor that we're currently
                     // waiting even if it's for a veery short while

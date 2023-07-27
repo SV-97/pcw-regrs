@@ -295,7 +295,7 @@ impl<T> UpperTriArray<Vec<T>> {
     pub fn from_row_major_vec(n_rows: usize, n_cols: usize, data: Vec<T>) -> Self {
         assert_eq!(data.len(), partial_triangle(n_rows, n_cols));
         Self {
-            data: data,
+            data,
             n_rows,
             n_cols,
             n_rows_view: n_rows,
@@ -345,7 +345,7 @@ where
 
 pub trait Get<Idx> {
     type Output;
-    fn get<'a>(&'a self, idx: Idx) -> Option<&'a Self::Output>;
+    fn get(&self, idx: Idx) -> Option<&Self::Output>;
 }
 
 impl<'a, T> Get<[usize; 2]> for UpperTriArray<&'a [T]> {
@@ -385,7 +385,7 @@ pub trait GetMut<Idx>: Get<Idx> {
     fn get_mut(&mut self, idx: Idx) -> Option<&mut Self::Output>;
 }
 
-impl<'a, T> GetMut<[usize; 2]> for UpperTriArray<&'a mut [T]> {
+impl<T> GetMut<[usize; 2]> for UpperTriArray<&mut [T]> {
     #[inline]
     fn get_mut(&mut self, idx: [usize; 2]) -> Option<&mut Self::Output> {
         // index out of bounds of valid region
@@ -397,7 +397,7 @@ impl<'a, T> GetMut<[usize; 2]> for UpperTriArray<&'a mut [T]> {
     }
 }
 
-impl<'a, T> GetMut<[usize; 2]> for UpperTriArray<Vec<T>> {
+impl<T> GetMut<[usize; 2]> for UpperTriArray<Vec<T>> {
     #[inline]
     fn get_mut(&mut self, idx: [usize; 2]) -> Option<&mut Self::Output> {
         // index out of bounds of valid region
@@ -416,7 +416,7 @@ where
     type Output = <Self as Get<[usize; 2]>>::Output;
     #[inline]
     fn index(&self, idx: [usize; 2]) -> &Self::Output {
-        &self.get(idx).expect("Index out of bounds")
+        self.get(idx).expect("Index out of bounds")
     }
 }
 
@@ -495,7 +495,7 @@ pub struct RowIter<'a, T> {
 }
 
 impl<S> UpperTriArray<S> {
-    pub fn into_iter_row_major<'a, T>(&'a self) -> RowIter<'a, T>
+    pub fn iter_row_major<T>(&self) -> RowIter<T>
     where
         Self: UpperTriArrayViewTrait<T>,
     {
@@ -544,7 +544,7 @@ pub struct RowIterMut<'a, T> {
 }
 
 impl<S> UpperTriArray<S> {
-    pub fn into_iter_row_major_mut<'a, T>(&'a mut self) -> RowIterMut<'a, T>
+    pub fn iter_row_major_mut<T>(&mut self) -> RowIterMut<T>
     where
         Self: UpperTriArrayViewMutTrait<T>,
     {
@@ -793,7 +793,7 @@ mod tests {
                 256  512
                     1024
         */
-        let mut it = view.into_iter_row_major();
+        let mut it = view.iter_row_major();
 
         assert_eq!(it.next(), Some(&2));
         assert_eq!(it.next(), Some(&4));
@@ -845,7 +845,7 @@ mod tests {
                 [0, 0] => 0,
                 [row, col] if row == col => view[[row - 1, col - 1]] + 2,
                 [_, _] => {
-                    let x = view.into_iter_row_major().max().unwrap();
+                    let x = view.iter_row_major().max().unwrap();
                     x * 2 + 1
                 }
             },

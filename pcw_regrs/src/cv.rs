@@ -1,5 +1,5 @@
 use num_traits::real::Real;
-use num_traits::{FromPrimitive, Zero};
+use num_traits::Zero;
 use pcw_fn::{Functor, FunctorRef, PcwFn, VecPcwFn};
 
 use crate::affine_min::{pointwise_minimum_of_affines, AffineFunction};
@@ -11,12 +11,15 @@ use std::iter;
 
 /// Calculate the functions mapping hyperparameter values to cross validation scores (including
 /// standard errors) and model params.
-pub fn cv_scores_and_models(
-    timeseries_sample: &ValidTimeSeriesSample,
+pub fn cv_scores_and_models<T>(
+    timeseries_sample: &ValidTimeSeriesSample<T>,
     user_params: &MatchedUserParams,
-    dp_solution: &OptimalJumpData,
-    training_err: impl Fn(usize, usize, DegreeOfFreedom) -> OFloat,
-) -> (CvFunc, ModelFunc) {
+    dp_solution: &OptimalJumpData<T>,
+    training_err: impl Fn(usize, usize, DegreeOfFreedom) -> T,
+) -> (CvFunc<T>, ModelFunc<T>)
+where
+    T: OrdFloat,
+{
     let data_len = usize::from(timeseries_sample.len());
 
     let opt = dp_solution;
@@ -64,7 +67,7 @@ pub fn cv_scores_and_models(
             // let stats = partial_cvs.try_simple_statistics().unwrap();
             // let model_error = stats.sum;
             Annotated::new(
-                AffineFunction::new(OFloat::from_usize(n_dofs).unwrap(), model_error),
+                AffineFunction::new(T::from_usize(n_dofs).unwrap(), model_error),
                 // TODO: I don't think the model here doesn't actually have to be an `Option`.
                 // Find out why it is and remove it if it's really not needed. It might be due to the pointwise minimization later on requiring a Default.
                 Some(model),
@@ -99,14 +102,17 @@ impl<E: Default> Default for MetaData<E> {
 /// Calculate the cross validation scores for all models of the approximation given the
 /// corresponding optimal jump data. Each score is annotated with its standard error.
 // TODO: Refactor this, it's quite long
-pub fn calc_cv_scores(
-    timeseries_sample: &ValidTimeSeriesSample,
+pub fn calc_cv_scores<T>(
+    timeseries_sample: &ValidTimeSeriesSample<T>,
     user_params: &MatchedUserParams,
-    opt: &OptimalJumpData,
-) -> CvFunc {
+    opt: &OptimalJumpData<T>,
+) -> CvFunc<T>
+where
+    T: OrdFloat,
+{
     let data_len = usize::from(timeseries_sample.len());
     let mut cv_func = VecPcwFn::zero(); // this is CV : γ ↦ ∑ᵣ (CVᵣᵒᵖᵗ(γ))
-    let mut cv_func_sq: VecPcwFn<OFloat, OFloat> = VecPcwFn::zero(); // this is  γ ↦ ∑ᵣ (CVᵣᵒᵖᵗ(γ))²
+    let mut cv_func_sq: VecPcwFn<T, T> = VecPcwFn::zero(); // this is  γ ↦ ∑ᵣ (CVᵣᵒᵖᵗ(γ))²
 
     // allocate two buffers that are used throughout the cut tracing to avoid allocations in the hot loop
     let mut cut_buffer = Stack::with_capacity(data_len - 1);
@@ -173,7 +179,7 @@ pub fn calc_cv_scores(
 
             affines.push(Annotated::new(
                 AffineFunction::new(
-                    OFloat::from_usize(n_dofs) // TODO: is this correct or do we want n_dofs?
+                    T::from_usize(n_dofs) // TODO: is this correct or do we want n_dofs?
                         .expect("Failed to create error slope from usize"),
                     training_error,
                 ),
@@ -199,8 +205,8 @@ pub fn calc_cv_scores(
         }
     }
     // maybe_debug::dbg!(&cv_func);
-    let n = OFloat::from_usize(data_len).unwrap();
-    let k = OFloat::from_usize(data_len - 1).unwrap();
+    let n = T::from_usize(data_len).unwrap();
+    let k = T::from_usize(data_len - 1).unwrap();
     // standard error function
     let se_func = ((cv_func_sq - cv_func.fmap_ref(|&x| Real::powi(x, 2) / n))
         .fmap(|x| Real::sqrt(x) / n))
