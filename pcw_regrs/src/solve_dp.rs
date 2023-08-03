@@ -254,10 +254,17 @@ where
             MinimizationSolution { min: energy_2, .. }: &MinimizationSolution<_,T,>| {
                 energy_1.cmp(energy_2)
         };
-        // let mut minimizer = parallel_minimizer::ParallelMinimizer::new(cmp);
-        // let mut minimizer = minimizers::StackMinimizer::new(data_len * max_total_dof, cmp);
+        // This is a somewhat crude lower bound on the needed capacity for the minimizer buffer. Calculating this isn't really
+        // necessary but we can easily save some memory here.
+        // This is obtained by considering the central two loops in the DP (which use the minimizer) and the maximal values for
+        // the respective parameters.
+        let approximate_capacity_bound =
+            (data_len - 1) * min3(data_len - 1, max_seg_dof, max_total_dof);
+        // let mut minimizer = minimizers::ParallelMinimizer::new(approximate_capacity_bound, cmp);
+        // let mut minimizer = minimizers::StackMinimizer::new(approximate_capacity_bound, cmp);
         // let mut minimizer = minimizers::ImmediateMinimizer::new(cmp);
-        let mut minimizer = minimizers::VecMinimizer::new(cmp);
+        let mut minimizer =
+            minimizers::VecMinimizer::with_capacity(approximate_capacity_bound, cmp);
 
         // iteratively solve using bottom-up DP scheme:
         // "for all right segment boundaries"
@@ -660,7 +667,7 @@ mod minimizers {
 
     mod parallel_minimizer {
         use super::{MinHandle, Minimizer};
-        use lockfree::channel::spsc;
+        use rtrb;
         use std::cmp;
         use std::fmt::Debug;
         use std::sync::mpsc;
@@ -673,13 +680,14 @@ mod minimizers {
         }
 
         struct MinServer<T> {
-            vals: spsc::Receiver<T>,
+            vals: rtrb::Consumer<T>,
             out: mpsc::Sender<T>,
             notify_done: mpsc::Receiver<ServerCommand>,
         }
 
+        /// A minimizer that uses another thread (communicating via a lockfree ringbuffer channel) for the actual minimization
         pub struct ParallelMinimizer<T> {
-            vals: spsc::Sender<T>,
+            vals: rtrb::Producer<T>,
             out: mpsc::Receiver<T>,
             notify_done: mpsc::Sender<ServerCommand>,
         }
@@ -690,7 +698,7 @@ mod minimizers {
 
         impl<'a, T> MinHandle<T> for ParMinHandle<'a, T>
         where
-            T: Debug + Send + 'static,
+            T: Send + 'static,
         {
             fn add_to_min(&mut self, val: T) {
                 self.minimizer.add_to_min(val)
@@ -699,7 +707,7 @@ mod minimizers {
 
         impl<T> Minimizer<T> for ParallelMinimizer<T>
         where
-            T: Debug + Send + 'static,
+            T: Send + 'static,
         {
             type Handle<'a> = ParMinHandle<'a, T>;
             fn minimize(&'_ mut self, func: impl FnOnce(ParMinHandle<'_, T>)) -> T {
@@ -712,13 +720,13 @@ mod minimizers {
 
         impl<T> ParallelMinimizer<T>
         where
-            T: Send + Debug + 'static,
+            T: Send + 'static,
         {
-            pub fn new<F>(cmp: F) -> ParallelMinimizer<T>
+            pub fn new<F>(capacity: usize, cmp: F) -> ParallelMinimizer<T>
             where
                 F: Fn(&T, &T) -> std::cmp::Ordering + Send + 'static,
             {
-                let (vals_send, vals_recv) = spsc::create();
+                let (vals_send, vals_recv) = rtrb::RingBuffer::new(capacity);
                 let (out_send, out_recv) = mpsc::channel();
                 let (notify_done_send, notify_done_recv) = mpsc::channel();
                 let _handle = thread::spawn(move || {
@@ -741,7 +749,7 @@ mod minimizers {
             }
 
             fn add_to_min(&mut self, val: T) {
-                self.vals.send(val).unwrap()
+                self.vals.push(val).unwrap()
             }
 
             fn done(&mut self) -> T {
@@ -754,13 +762,13 @@ mod minimizers {
             pub fn serve(mut self, cmp: impl Fn(&T, &T) -> std::cmp::Ordering) {
                 let mut current_min = self.blocking_recv();
                 'serve: loop {
-                    current_min = match self.vals.recv() {
+                    current_min = match self.vals.pop() {
                         Ok(new_val) => cmp::min_by(current_min, new_val, &cmp),
                         Err(_) => current_min,
                     };
                     if let Ok(ServerCommand::Stop) = self.notify_done.recv() {
                         // receive all remaining vals
-                        while let Ok(new_val) = self.vals.recv() {
+                        while let Ok(new_val) = self.vals.pop() {
                             current_min = cmp::min_by(current_min, new_val, &cmp);
                         }
                         self.out.send(current_min).unwrap();
@@ -783,7 +791,7 @@ mod minimizers {
             pub fn blocking_recv(&mut self) -> T {
                 loop {
                     // busy wait for first value
-                    if let Ok(new_val) = self.vals.recv() {
+                    if let Ok(new_val) = self.vals.pop() {
                         break new_val;
                     }
                     // Indicate to the processor that we're currently
