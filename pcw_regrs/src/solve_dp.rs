@@ -7,8 +7,9 @@ use crate::{dof, prelude::*, stack::Stack};
 
 use ndarray::{s, Array2};
 
-/// A single "cut" of the partition given by reference data for which cut should come before it.
-// Note that this is essentially a linked list through some indirection given by the DP solution.
+/// A single "cut" of the partition given by some reference data telling us which cut should come before it.
+/// See also the [try_cut_path_to_cut] function to see how this this type relates to an actual cut.
+/// Note that this essentially represents a linked list through some indirection given by the DP solution.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum CutPath {
     SomeCuts {
@@ -61,7 +62,7 @@ where
 /// Returns the minimum of three values.
 #[inline]
 fn min3<T: Ord>(a: T, b: T, c: T) -> T {
-    std::cmp::min(a, std::cmp::min(b, c))
+    cmp::min(a, cmp::min(b, c))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,17 +92,19 @@ where
     }
 
     /// Immutable core algorithm of `step`
+    #[inline]
     fn step_core<M>(
         &self,
         right_boundary: usize,
         k_dof_plus: usize,
         max_seg_dof: usize,
         minimizer: &mut M,
-    ) -> MinimizationSolution<(isize, usize), T>
+    ) -> MinimizationSolution<CutPath, T>
     where
-        M: Minimizer<MinimizationSolution<(isize, usize), T>>,
+        M: Minimizer<MinimizationSolution<CutPath, T>>,
     {
         minimizer.minimize(move |mut minh| {
+            // "for all partitions of data[0..=right_boundary] into data[0..l], data[l..=right_boundary]"
             for l in 0..=right_boundary {
                 let p_r_min = cmp::max(k_dof_plus.saturating_sub(l + 1), 1);
                 let p_r_max = min3(
@@ -109,6 +112,7 @@ where
                     max_seg_dof, // it's also restricted by the maximal dof we allow on any segment
                     k_dof_plus - 1, // and of course the total dof count minus 1 since 1 dof has to be spent on p_l
                 );
+                // "for all valid (subject to the extra constraints) degrees on freedom on data[l..=right_boundary]"
                 for p_r in p_r_min..=p_r_max {
                     let p_l = k_dof_plus - p_r;
                     let d = (self.training_error)(
@@ -120,20 +124,31 @@ where
                     // `p_l - 1` to account for offset in bellman array indexing
                     if let Some(energy) = self.energies[[p_l - 1, l]] {
                         minh.add_to_min(MinimizationSolution {
-                            arg_min: (l as isize, p_l),
+                            arg_min: if p_l == 0 {
+                                // dbg!("Look ma, no cuts!");
+                                CutPath::NoCuts
+                            } else {
+                                CutPath::SomeCuts {
+                                    // Saftey: we've previously checkecd that p_l is not zero
+                                    remaining_dofs: unsafe { DegreeOfFreedom::new_unchecked(p_l) },
+                                    elem_after_prev_cut: l + 1,
+                                }
+                            },
                             min: energy + d,
                         });
+                    } else {
+                        //dbg!("Hmm");
                     }
                 }
                 // handle the case where we approximate the whole segment with a single model: so p_r = k+1, p_l = 0
                 if k_dof_plus
-                    <= std::cmp::min(
-                        right_boundary + 2,
+                    <= cmp::min(
                         max_seg_dof, // it's also restricted by the maximal dof we allow on any segment
+                        right_boundary + 2,
                     )
                 {
                     minh.add_to_min(MinimizationSolution {
-                        arg_min: (-1, 0),
+                        arg_min: CutPath::NoCuts,
                         min: (self.training_error)(
                             0,
                             right_boundary + 1,
@@ -146,26 +161,25 @@ where
     }
 
     /// Solves the minimization problem in the forward step of the bellman equation.
+    /// The returned `MinimizationSolution` consists of the optimal energy together with a cut path,
+    /// where the cut path is isomorphic to the argmin in the bellman equation
+    #[inline]
     pub fn step<M>(
         &mut self,
         right_boundary: usize,
         k_dof_plus: usize, /* k degrees of freedom + 1 */
         max_seg_dof: usize,
         minimizer: &mut M,
-    ) -> MinimizationSolution<(isize, usize), T>
+    ) -> MinimizationSolution<CutPath, T>
     where
-        M: Minimizer<MinimizationSolution<(isize, usize), T>>,
+        M: Minimizer<MinimizationSolution<CutPath, T>>,
     {
         let res = self.step_core(right_boundary, k_dof_plus, max_seg_dof, minimizer);
-        self.store_energy(
-            k_dof_plus, // TODO: make this unchecked
-            right_boundary,
-            res.min,
-        );
+        self.store_energy(k_dof_plus, right_boundary, res.min);
         res
     }
 
-    // pub fn store_energy(&mut self, dofs: DegreeOfFreedom, right_boundary: usize, min_energy: OFloat) {
+    #[inline]
     pub fn store_energy(&mut self, k_dof_plus_one: usize, right_boundary: usize, min_energy: T) {
         self.energies[[k_dof_plus_one - 1, right_boundary + 1]] = Some(min_energy);
         // self.energies[[usize::from(dofs), right_boundary + 1]] = Some(value);
@@ -248,22 +262,12 @@ where
         // iteratively solve using bottom-up DP scheme:
         // "for all right segment boundaries"
         for r in 0..data_len - 1 {
+            // "for all degrees of freedom on the segment with boundary at r"
             // `r + 2` attains a maximum of `data_len` over all iterations of the outer `r` loop
             for k_dof_plus_one in 2..=cmp::min(r + 2, max_total_dof) {
                 let MinimizationSolution { arg_min, .. } =
                     energies.step(r, k_dof_plus_one, max_seg_dof, &mut minimizer);
-
-                prev_cuts[[k_dof_plus_one - 2, r + 1]] = {
-                    let (l_min, p_l_min) = arg_min;
-                    Some(if p_l_min == 0 {
-                        CutPath::NoCuts
-                    } else {
-                        CutPath::SomeCuts {
-                            remaining_dofs: DegreeOfFreedom::try_from(p_l_min).unwrap(),
-                            elem_after_prev_cut: (l_min + 1) as usize,
-                        }
-                    })
-                };
+                prev_cuts[[k_dof_plus_one - 2, r + 1]] = Some(arg_min);
             }
         }
 
