@@ -288,3 +288,14 @@ macro_rules! dof {
         $crate::prelude::DegreeOfFreedom::new($n)
     };
 }
+
+/// Find minimum of given values
+#[macro_export]
+macro_rules! min {
+    ($x:expr) => {
+        $x
+    };
+    ($x:expr, $($rest:expr),*$(,)?) => {
+        std::cmp::min($x, $crate::min!($($rest),*))
+    };
+}

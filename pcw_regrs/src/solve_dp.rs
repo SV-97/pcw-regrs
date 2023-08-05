@@ -3,7 +3,11 @@
 
 use std::{cmp, mem::MaybeUninit};
 
-use crate::{dof, prelude::*, stack::Stack};
+use crate::{
+    prelude::*,
+    stack::Stack,
+    {dof, min},
+};
 
 use ndarray::{s, Array2};
 
@@ -59,12 +63,6 @@ where
     OptimalJumpData::from_errors(timeseries_sample, user_params, training_error)
 }
 
-/// Returns the minimum of three values.
-#[inline]
-fn min3<T: Ord>(a: T, b: T, c: T) -> T {
-    cmp::min(a, cmp::min(b, c))
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct BellmanBuilder<F, T> {
     energies: Array2<Option<T>>,
@@ -107,7 +105,7 @@ where
             // "for all partitions of data[0..=right_boundary] into data[0..l], data[l..=right_boundary]"
             for l in 0..=right_boundary {
                 let p_r_min = cmp::max(k_dof_plus.saturating_sub(l + 1), 1);
-                let p_r_max = min3(
+                let p_r_max = min!(
                     right_boundary + 1 - l, // p_r can't be more larger than the number of data point in the segment
                     max_seg_dof, // it's also restricted by the maximal dof we allow on any segment
                     k_dof_plus - 1, // and of course the total dof count minus 1 since 1 dof has to be spent on p_l
@@ -254,17 +252,18 @@ where
             MinimizationSolution { min: energy_2, .. }: &MinimizationSolution<_,T,>| {
                 energy_1.cmp(energy_2)
         };
+
         // This is a somewhat crude lower bound on the needed capacity for the minimizer buffer. Calculating this isn't really
         // necessary but we can easily save some memory here.
         // This is obtained by considering the central two loops in the DP (which use the minimizer) and the maximal values for
         // the respective parameters.
-        let approximate_capacity_bound =
-            (data_len - 1) * min3(data_len - 1, max_seg_dof, max_total_dof);
+        // let approximate_capacity_bound =
+        //     (data_len - 1) * min!(data_len - 1, max_seg_dof, max_total_dof);
         // let mut minimizer = minimizers::ParallelMinimizer::new(approximate_capacity_bound, cmp);
         // let mut minimizer = minimizers::StackMinimizer::new(approximate_capacity_bound, cmp);
-        // let mut minimizer = minimizers::ImmediateMinimizer::new(cmp);
-        let mut minimizer =
-            minimizers::VecMinimizer::with_capacity(approximate_capacity_bound, cmp);
+        let mut minimizer = minimizers::ImmediateMinimizer::new(cmp);
+        // let mut minimizer =
+        //     minimizers::VecMinimizer::with_capacity(approximate_capacity_bound, cmp);
 
         // iteratively solve using bottom-up DP scheme:
         // "for all right segment boundaries"
@@ -507,6 +506,8 @@ mod minimizers {
     /// Provides a context for finding the minimum of a collection of values:
     /// in the context a bunch of values can be sent to a given handle and when the context
     /// is destroyed the minimum of all the sent values is returned.
+    /// The minimizer prefers newer value on equality, so it implements the same logic as the snippet
+    /// `std::cmp::min_by(new_value, old_value, cmp)`.
     pub trait Minimizer<T> {
         type Handle<'a>: MinHandle<T>;
         fn minimize<'a>(&'a mut self, func: impl for<'b> FnOnce(Self::Handle<'b>)) -> T;
@@ -591,10 +592,11 @@ mod minimizers {
             T: Copy,
             F: Fn(&T, &T) -> Ordering,
         {
-            fn add_to_min(&mut self, val: T) {
+            fn add_to_min(&mut self, new_val: T) {
                 self.current_min = match self.current_min {
-                    Some(current) => Some(std::cmp::min_by(current, val, &self.cmp)),
-                    None => Some(val),
+                    // Note that we prefer the new value since it's the left arg
+                    Some(current) => Some(std::cmp::min_by(new_val, current, &self.cmp)),
+                    None => Some(new_val),
                 };
             }
         }
@@ -607,7 +609,7 @@ mod minimizers {
             type Handle<'a> = &'a mut Self;
             fn minimize<'a>(&'a mut self, func: impl for<'b> FnOnce(Self::Handle<'b>)) -> T {
                 func(self);
-                self.current_min.unwrap()
+                self.current_min.take().unwrap()
             }
         }
     }
@@ -660,7 +662,8 @@ mod minimizers {
             fn minimize<'a>(&'a mut self, func: impl for<'b> FnOnce(Self::Handle<'b>)) -> T {
                 self.stack.clear(); // make sure the stack is empty
                 func(self);
-                self.stack.drain(..).min_by(&self.cmp).unwrap()
+                // we gotta start from the back so we reverse here
+                self.stack.drain(..).rev().min_by(&self.cmp).unwrap()
             }
         }
     }
@@ -763,13 +766,15 @@ mod minimizers {
                 let mut current_min = self.blocking_recv();
                 'serve: loop {
                     current_min = match self.vals.pop() {
-                        Ok(new_val) => cmp::min_by(current_min, new_val, &cmp),
+                        // Note that we prefer the new value since it's the left arg
+                        Ok(new_val) => cmp::min_by(new_val, current_min, &cmp),
                         Err(_) => current_min,
                     };
                     if let Ok(ServerCommand::Stop) = self.notify_done.recv() {
                         // receive all remaining vals
                         while let Ok(new_val) = self.vals.pop() {
-                            current_min = cmp::min_by(current_min, new_val, &cmp);
+                            // Note that we prefer the new value since it's the left arg
+                            current_min = cmp::min_by(new_val, current_min, &cmp);
                         }
                         self.out.send(current_min).unwrap();
                         match self.notify_done.recv() {
