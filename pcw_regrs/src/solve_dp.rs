@@ -514,6 +514,7 @@ mod minimizers {
     }
 
     pub use immediate_minimizer::*;
+    #[cfg(feature = "dep:rtrb")]
     pub use parallel_minimizer::*;
     pub use stack_minimizer::*;
     pub use vec_minimizer::*;
@@ -668,6 +669,7 @@ mod minimizers {
         }
     }
 
+    #[cfg(feature = "dep:rtrb")]
     mod parallel_minimizer {
         use super::{MinHandle, Minimizer};
         use rtrb;
