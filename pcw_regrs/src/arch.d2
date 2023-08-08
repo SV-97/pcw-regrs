@@ -1,101 +1,75 @@
-explain: |md
-  # General
-  * Metric is fixed as euclidean squared metric for efficiency in regression residuals
+Input: {
+  grid-gap: 0
+  grid-columns: 1
 
-| {width: 20}
-
-metric: Metric
-res: Residual error calculation
-timeseries: Timeseries sample {
-  times: Sample times
-  values: Sample values
-}
-metric -> res
-
-alg_params: Algorithm parameters {
-  max_total_dof: Maximum total degrees of freedom
-  max_seg_dof: Maximum segment / local degrees of freedom
-}
-
-alg_params -> fit_pcw_poly
-timeseries -> fit_pcw_poly
-metric -> fit_pcw_poly
-fit_pcw_poly: {
-  explain: |md
-    # Explanation
-
-    1. Calculate CV scores and corresponding minimizing models for all penalties
-    2. Min-downsample CV function onto model function
-    3. Profit! :) At this point the central data are computed and most of the hard work is over. We can then use this data 
-  |
-  code: ||rs
-    let (cv_func, model_func) = cv_scores_and_models(max_total_dof, approx, metric)?;
-    // resample the cv score function to the model function; folding intervals with a minimum
-    // so if there's an interval on which the models are constant the CV score we associate to
-    // this interval is the minimal one of any penalty on it.
-    let cv_down =
-        cv_func
-            .clone()
-            .resample_to::<VecPcwFn<_, _>, _>(model_func.clone(), |a, b| {
-                if a.data <= b.data {
-                    a
-                } else {
-                    b
-                }
-            });
-
-    Some(Self {
-        model_func,
-        cv_func,
-        down_cv_func: cv_down,
-    })
-  ||
-
-  Calculate CV scores and models: {
-    explain: |md
-      1. Solve DP
-      2. 
-    |
-    max_total_dof -> dp
-    max_seg_dof -> dp
-    distances -> dp
-    dp: Solve DP
-    dp -> optimal_jump_data: calculates
-    optimal_jump_data: Optimal jump data
+  body: "" {
+    grid-gap: 0
+    grid-columns: 2
+    sample: Timeseries Sample
+    Optional algorithm parameters: {
+      grid-gap: 0
+      grid-columns: 3
+      max_total_dof: Maximum total dofs
+      max_seg_dof: Maximum segment / local dofs
+      residual: Training errors
+    }
   }
 }
-fit_pcw_poly -> result
 
-result: Result {
-  ose_best: ||rs
-    /// Return the best model w.r.t. the "one standard error" rule.
-    pub fn ose_best<T, D, S>(&self) -> Option<OseBestModel<T, D, E, S>>
-    where
-        S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
-    {
-        ...
+Preprocessing: {
+  validation: Input validation
+  residuals: Training error calculation (if errors not given by user) {
+    style: {
+      stroke-dash: 3
     }
-  ||
-
-  n_cv_minimizer: ||rs
-    /// Return the models corresponding to the `n_best` lowest CV scores.
-    pub fn n_cv_minimizers<T, D, S>(
-        &self,
-        n_best: usize,
-    ) -> Option<Vec<CvMinimizerModel<T, D, E, S>>>
-    where
-        S: ErrorApproximator<T, D, E, Model = DegreeOfFreedom>,
-        E: Bounded
-            + Send
-            + Sync
-            + Real
-            + Ord
-            + FromPrimitive
-            + Default
-            + AddAssign
-            + std::iter::Sum,
-    {
-        ...
-    }
-  ||
+  }
+  validation -> residuals
 }
+
+main: Main Algorithm {
+  dp: Solve dynamic program {
+    grid-gap: 10
+    grid-columns: 1
+    formula: |latex
+      \\large {
+        B_{r+1}^{k+1} = \\min_{
+          l \\in 0:r, ~
+                p_r \\in \\alpha_{k,l} : \\beta_{r,k,l}
+              }} \\left( B_l^{k + 1 - p_r} + d_{l+1:r+1}^{p_r} \\right)
+    |
+  } # \\min_{\\substack{l \\ in 0:r \\ p_r \\in \\alpha_{k,l} : \\beta_{r,k,l}}} f(x)}
+  cv: Determine CV and model functions {
+    tracing: Graph tracing of DP solution
+    min: Find pointwise min of affine functions
+    funcs: "" {
+      grid-gap: 10
+      grid-columns: 1
+      cv_func: |latex
+        \\large {
+          \\gamma \\mapsto \\mathrm{CV}(\\gamma)
+        }
+      |
+      model_func: |latex
+        \\large { 
+          \\gamma \\mapsto \\underset{\\text{partition}~P, ~ \\text{dofs}~\\nu}{\\mathrm{argmin}} \\gamma\\text{-penalized error} 
+        }
+      |
+    }
+    tracing -> min -> funcs
+  }
+
+  solution: Base solution
+  dp -> cv -> solution
+
+  solution -> CV-optimal pcw function
+  solution -> OSE-optimal pcw function
+}
+
+Postprocessing: {
+  Select cut representative: {
+    Segment middlepoint
+    Continuity optimization
+  }
+}
+
+Input -> Preprocessing -> main -> Postprocessing

@@ -1,7 +1,11 @@
 # pcw-regrs
-Fast, optimal, extensible and cross-validated heterogeneous piecewise polynomial regression for timeseries
+Fast, optimal, extensible and cross-validated heterogeneous piecewise polynomial regression for timeseries.
 
 The algorithm is implemented in Rust in the `pcw_regrs` subdirectory. A Python API can be found in `pcw_regrs_py` and installed via `maturin`.
+
+# General structure
+
+![A basic pipeline diagram for the algorithm. The input consists of a timeseries sample as well as the optional parameters. These are sent into a preprocessing stage for validation and to optionally calculate the training errors. Once that's finished we move on to the main algorithm which solves the main dynamic program, determines the CV and model functions and then determines the CV- or OSE-optimal piecewise functions. Finally a postprocessing stage is used to select cut representatives either by calculating segment middlepoints or running a continuity optimization](./arch.svg)
 
 # Building
 
