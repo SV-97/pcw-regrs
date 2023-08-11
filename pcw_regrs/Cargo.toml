@@ -1,6 +1,6 @@
 [package]
 name = "pcw_regrs"
-version = "1.5.0"
+version = "1.6.0"
 edition = "2021"
 publish = false    # prevent accidental publishing
 
@@ -24,6 +24,7 @@ serde = { version = "1.0.152", features = ["derive"], optional = true }
 rayon = { version = "1.7.0", optional = true }
 maybe-debug = "0.1.0"
 rtrb = { version = "0.2.3", optional = true }
+indoc = "2.0.3"
 
 [dev-dependencies]
 maybe-debug = "0.1.0"
@@ -31,5 +32,11 @@ maybe-debug = "0.1.0"
 [features]
 serde = ["dep:serde"]
 nightly-only = ["polyfit-residuals/nightly-only"]
-default = ["serde"]
+default = ["serde", "dofs-sub-one"]
 parallel_rayon = ["dep:rayon", "polyfit-residuals/parallel_rayon"]
+# If this feature is enabled then a segment of n data points is allowed no more than n-1 dofs
+# rather than the n dofs we usually allow. This behaviour corresponds to the preconditions of
+# the uniqueness proof and makes intuitive sense when considering the locality of each point:
+# by not going up to full interpolation any point necessarily influences the full model whereas
+# interpolation would allow it to influence only a single segment. 
+dofs-sub-one = []

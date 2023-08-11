@@ -1,4 +1,5 @@
 use super::annotate::Annotated;
+use indoc::indoc;
 use num_traits::{real::Real, Float, FromPrimitive};
 use ordered_float::OrderedFloat;
 use pcw_fn::VecPcwFn;
@@ -128,10 +129,20 @@ impl UserParams {
         T: OrdFloat,
     {
         let data_len: NonZeroUsize = ts.len();
-        let max_total_dof = if let Some(max_dof) = self.max_total_dof {
-            std::cmp::min(data_len, max_dof)
+        let len_constraint = if cfg!(feature = "dofs-sub-one") {
+            NonZeroUsize::new(usize::from(ts.len()) - 1)
+                .expect(indoc! {"
+                    Invalid combination of configuration and input: the input
+                    timeseries has length 1 but the current configuration is such that at most
+                    length - 1 degrees of freedom may be used. However there are no models with 0 degrees of freedom.
+                "})
         } else {
             data_len
+        };
+        let max_total_dof = if let Some(max_dof) = self.max_total_dof {
+            std::cmp::min(len_constraint, max_dof)
+        } else {
+            len_constraint
         };
         let max_seg_dof = if let Some(max_dof) = self.max_seg_dof {
             std::cmp::min(max_total_dof, max_dof)

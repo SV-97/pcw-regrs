@@ -270,7 +270,12 @@ where
         for r in 0..data_len - 1 {
             // "for all degrees of freedom on the segment with boundary at r"
             // `r + 2` attains a maximum of `data_len` over all iterations of the outer `r` loop
-            for k_dof_plus_one in 2..=cmp::min(r + 2, max_total_dof) {
+            let upper_bound_due_to_segment_len = if cfg!(feature = "dofs-sub-one") {
+                r + 1
+            } else {
+                r + 2
+            };
+            for k_dof_plus_one in 2..=cmp::min(upper_bound_due_to_segment_len, max_total_dof) {
                 let MinimizationSolution { arg_min, .. } =
                     energies.step(r, k_dof_plus_one, max_seg_dof, &mut minimizer);
                 prev_cuts[[k_dof_plus_one - 2, r + 1]] = Some(arg_min);
