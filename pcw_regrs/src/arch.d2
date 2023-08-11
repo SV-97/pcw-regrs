@@ -1,0 +1,75 @@
+Input: {
+  grid-gap: 0
+  grid-columns: 1
+
+  body: "" {
+    grid-gap: 0
+    grid-columns: 2
+    sample: Timeseries Sample
+    Optional algorithm parameters: {
+      grid-gap: 0
+      grid-columns: 3
+      max_total_dof: Maximum total dofs
+      max_seg_dof: Maximum segment / local dofs
+      residual: Training errors
+    }
+  }
+}
+
+Preprocessing: {
+  validation: Input validation
+  residuals: Training error calculation (if errors not given by user) {
+    style: {
+      stroke-dash: 3
+    }
+  }
+  validation -> residuals
+}
+
+main: Main Algorithm {
+  dp: Solve dynamic program {
+    grid-gap: 10
+    grid-columns: 1
+    formula: |latex
+      \\large {
+        B_{r+1}^{k+1} = \\min_{
+          l \\in 0:r, ~
+                p_r \\in \\alpha_{k,l} : \\beta_{r,k,l}
+              }} \\left( B_l^{k + 1 - p_r} + d_{l+1:r+1}^{p_r} \\right)
+    |
+  } # \\min_{\\substack{l \\ in 0:r \\ p_r \\in \\alpha_{k,l} : \\beta_{r,k,l}}} f(x)}
+  cv: Determine CV and model functions {
+    tracing: Graph tracing of DP solution
+    min: Find pointwise min of affine functions
+    funcs: "" {
+      grid-gap: 10
+      grid-columns: 1
+      cv_func: |latex
+        \\large {
+          \\gamma \\mapsto \\mathrm{CV}(\\gamma)
+        }
+      |
+      model_func: |latex
+        \\large { 
+          \\gamma \\mapsto \\underset{\\text{partition}~P, ~ \\text{dofs}~\\nu}{\\mathrm{argmin}} \\gamma\\text{-penalized error} 
+        }
+      |
+    }
+    tracing -> min -> funcs
+  }
+
+  solution: Base solution
+  dp -> cv -> solution
+
+  solution -> CV-optimal pcw function
+  solution -> OSE-optimal pcw function
+}
+
+Postprocessing: {
+  Select cut representative: {
+    Segment middlepoint
+    Continuity optimization
+  }
+}
+
+Input -> Preprocessing -> main -> Postprocessing

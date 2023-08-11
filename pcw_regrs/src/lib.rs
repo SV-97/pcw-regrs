@@ -1,363 +1,441 @@
-//! This library provides an interface to fit piecewise polynomial models to timeseries
-//! data such that the resulting models are in some sense optimal.
-//!
-//! (Note that it really solves a more general problem; however the only full implementation
-//! we provide is the piecewise polynomial case. To learn more about the more general problem
-//! please have a look at the associated paper / thesis.
-//! To use this more general interface you'll wanna implement [PcwApproximator].)
-//!
-//! A Python interface to this crate is available as `pcw_regrs_py`.
-//!
-//! ## Mathematical background
-//!
-//! The central optimization problem being solved for all γ ≥ 0 is
-//! ```text
-//! minₚ total_training_error(p) + γ complexity(p)
-//! ```
-//! where minimization is over possible piecewise polynomial models p for the timeseries,
-//! the training error is measured using the (squared) L2-norm such that the produced
-//! models are least-squares models and the complexity is measured as the sum of the "local
-//! degrees of freedom" of the model.
-//!
-//! The returned model is the solution of this problem that additionally minimizes a
-//! forward cross validation score.
-//!
-//! In the future a detailed description of the mathematical background
-//! will become available in a paper. When this happens we'll link to it from here.
-//!
-//! ## Complexity
-//!
-//! The time complexity of the polynomial case is O(n³m) where n is the length of the timeseries
-//! and m a bound on the local degree of the model.
-//! For a more general bound please consider the accompanying thesis / paper.
-//!
-//! ## Examples
-//!
-//! Fitting a model to some data is simple:
-//! We want to fit polynomial models so we import the corresponding types
-//! and function.
-//! We define a timeseries from some raw values. The sample times are in `ts`
-//! and the corresponding values in `ys`.
-//!
-//! ```
-//! use pcw_regrs::{fit_pcw_poly_primitive, ScoredPolyModel, SegmentModelSpec};
-//! use pcw_fn::{VecPcwFn, PcwFn};
-//! use std::num::NonZeroUsize;
-//! let ts = [1., 2., 3., 3.25, 3.5, 3.75_f64];
-//! let ys = [1.03771907, 0.96036854, 4.1921268, 6.03147004, 6.50596585, 6.10847852];
-//! # let solution = fit_pcw_poly_primitive(&ts, &ys, None, Some(10)).unwrap();
-//! # let cv_sol: ScoredPolyModel<_> = solution.cv_minimizer().unwrap();
-//! # assert_eq!(
-//! #     cv_sol.model,
-//! #     VecPcwFn::try_from_iters(
-//! #         [1],
-//! #         [
-//! #             SegmentModelSpec { start_idx: 0, stop_idx: 1, model: NonZeroUsize::new(1).unwrap() },
-//! #             SegmentModelSpec { start_idx: 2, stop_idx: 5, model: NonZeroUsize::new(3).unwrap() },
-//! #         ],
-//! #     ).unwrap()
-//! # );
-//! # let ose_sol: ScoredPolyModel<_> = solution.ose_best().unwrap();
-//! # assert_eq!(
-//! #     ose_sol.model,
-//! #     VecPcwFn::try_from_iters(
-//! #         [1],
-//! #         [
-//! #             SegmentModelSpec { start_idx: 0, stop_idx: 1, model: NonZeroUsize::new(1).unwrap() },
-//! #             SegmentModelSpec { start_idx: 2, stop_idx: 5, model: NonZeroUsize::new(1).unwrap() },
-//! #         ],
-//! #     ).unwrap()
-//! # );
-//! ```
-//!
-//! We fit a polynomial model with locally no more than 10 degrees of freedom to our data.
-//!
-//! ```
-//! # use pcw_regrs::{fit_pcw_poly_primitive, ScoredPolyModel, SegmentModelSpec};
-//! # use pcw_fn::{VecPcwFn, PcwFn};
-//! # use std::num::NonZeroUsize;
-//! # let ts = [1., 2., 3., 3.25, 3.5, 3.75_f64];
-//! # let ys = [1.03771907, 0.96036854, 4.1921268, 6.03147004, 6.50596585, 6.10847852];
-//! let solution = fit_pcw_poly_primitive(&ts, &ys, None, Some(10)).unwrap();
-//! # let cv_sol: ScoredPolyModel<_> = solution.cv_minimizer().unwrap();
-//! # assert_eq!(
-//! #     cv_sol.model,
-//! #     VecPcwFn::try_from_iters(
-//! #         [1],
-//! #         [
-//! #             SegmentModelSpec { start_idx: 0, stop_idx: 1, model: NonZeroUsize::new(1).unwrap() },
-//! #             SegmentModelSpec { start_idx: 2, stop_idx: 5, model: NonZeroUsize::new(3).unwrap() },
-//! #         ],
-//! #     ).unwrap()
-//! # );
-//! # let ose_sol: ScoredPolyModel<_> = solution.ose_best().unwrap();
-//! # assert_eq!(
-//! #     ose_sol.model,
-//! #     VecPcwFn::try_from_iters(
-//! #         [1],
-//! #         [
-//! #             SegmentModelSpec { start_idx: 0, stop_idx: 1, model: NonZeroUsize::new(1).unwrap() },
-//! #             SegmentModelSpec { start_idx: 2, stop_idx: 5, model: NonZeroUsize::new(1).unwrap() },
-//! #         ],
-//! #     ).unwrap()
-//! # );
-//! ```
-//!
-//! and get the model corresponding to the absolute minimum of the CV score
-//!
-//! ```
-//! # use pcw_regrs::{fit_pcw_poly_primitive, ScoredPolyModel, SegmentModelSpec};
-//! # use pcw_fn::{VecPcwFn, PcwFn};
-//! # use std::num::NonZeroUsize;
-//! # let ts = [1., 2., 3., 3.25, 3.5, 3.75_f64];
-//! # let ys = [1.03771907, 0.96036854, 4.1921268, 6.03147004, 6.50596585, 6.10847852];
-//! # let solution = fit_pcw_poly_primitive(&ts, &ys, None, Some(10)).unwrap();
-//! let cv_sol: ScoredPolyModel<_> = solution.cv_minimizer().unwrap();
-//! assert_eq!(
-//!     cv_sol.model,
-//!     VecPcwFn::try_from_iters(
-//!         [1],
-//!         [
-//!             SegmentModelSpec { start_idx: 0, stop_idx: 1, model: NonZeroUsize::new(1).unwrap() },
-//!             SegmentModelSpec { start_idx: 2, stop_idx: 5, model: NonZeroUsize::new(3).unwrap() },
-//!         ],
-//!     ).unwrap()
-//! );
-//! # let ose_sol: ScoredPolyModel<_> = solution.ose_best().unwrap();
-//! # assert_eq!(
-//! #     ose_sol.model,
-//! #     VecPcwFn::try_from_iters(
-//! #         [1],
-//! #         [
-//! #             SegmentModelSpec { start_idx: 0, stop_idx: 1, model: NonZeroUsize::new(1).unwrap() },
-//! #             SegmentModelSpec { start_idx: 2, stop_idx: 5, model: NonZeroUsize::new(1).unwrap() },
-//! #         ],
-//! #     ).unwrap()
-//! # );
-//! ```
-//!
-//! Finally we also compute the model corresponding to the one standard error rule.
-//!
-//! ```
-//! # use pcw_regrs::{fit_pcw_poly_primitive, ScoredPolyModel, SegmentModelSpec};
-//! # use pcw_fn::{VecPcwFn, PcwFn};
-//! # use std::num::NonZeroUsize;
-//! # let ts = [1., 2., 3., 3.25, 3.5, 3.75_f64];
-//! # let ys = [1.03771907, 0.96036854, 4.1921268, 6.03147004, 6.50596585, 6.10847852];
-//! # let solution = fit_pcw_poly_primitive(&ts, &ys, None, Some(10)).unwrap();
-//! # let cv_sol: ScoredPolyModel<_> = solution.cv_minimizer().unwrap();
-//! # assert_eq!(
-//! #     cv_sol.model,
-//! #     VecPcwFn::try_from_iters(
-//! #         [1],
-//! #         [
-//! #             SegmentModelSpec { start_idx: 0, stop_idx: 1, model: NonZeroUsize::new(1).unwrap() },
-//! #             SegmentModelSpec { start_idx: 2, stop_idx: 5, model: NonZeroUsize::new(3).unwrap() },
-//! #         ],
-//! #     ).unwrap()
-//! # );
-//! let ose_sol: ScoredPolyModel<_> = solution.ose_best().unwrap();
-//! assert_eq!(
-//!     ose_sol.model,
-//!     VecPcwFn::try_from_iters(
-//!         [1],
-//!         [
-//!             SegmentModelSpec { start_idx: 0, stop_idx: 1, model: NonZeroUsize::new(1).unwrap() },
-//!             SegmentModelSpec { start_idx: 2, stop_idx: 5, model: NonZeroUsize::new(1).unwrap() },
-//!         ],
-//!     ).unwrap()
-//! );
-//! ```
-//!
-//! ## User parameter selection
-//!
-//! The model we'd usually recommend without further knowledge about the application is one with
-//! locally no more than 10 degrees of freedom (so `max_total_dof = None`, `max_seg_dof = Some(10)`
-//! when using [fit_pcw_poly_primitive]).
-//! This yields good runtimes and models with most datasets we've tested.
-//!
-//! The CV criterion we recommend as default is the one standard error rule (available via
-//! [Solution::ose_best]).
-//!
+#![feature(let_chains)]
 
-mod affine_min;
-mod annotate;
-mod approximators;
-pub mod solve_jump;
-mod stack;
-
-use approximators::PolynomialApproximator;
-pub use approximators::SegmentModelSpec;
-pub use approximators::{
-    PcwApproximator, PcwPolynomialApproximator, PcwPolynomialArgs, PolynomialArgs,
-    TimeSeries, /* PcwConstantApproximator */
-};
-use itertools::Itertools;
-use ndarray::Array1;
-use num_traits::{real::Real, Bounded, Float, FromPrimitive, Signed};
-use ordered_float::{NotNan, OrderedFloat};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-pub use solve_jump::dof::{ScoredModel, Solution, SolutionCore};
-use std::{iter::Sum, num::NonZeroUsize, ops::AddAssign};
-use thiserror::Error;
+
+mod prelude;
+mod stack;
+mod tri_array;
+use annotate::Annotated;
+use cv::cv_scores_and_models;
+use derive_new::new;
+use itertools::Itertools;
+use ndarray::Array2;
+use pcw_fn::{FunctorRef, PcwFn, VecPcwFn};
+use polyfit_residuals as pr;
+pub use prelude::*;
+use solve_dp::solve_dp;
+pub mod affine_min;
+mod annotate;
+mod approx;
+mod cv;
+pub mod solve_dp;
 
 /// How many "steps into the future" we predict during cross validation
 const CV_PREDICTION_COUNT: usize = 1;
 
-/// A piecewise polynomial model for a timeseries and its cv score.
-pub type ScoredPolyModel<'a, R> = ScoredModel<'a, R, R, R, PolynomialApproximator<R, R>>;
-
-/// Squared euclidean metric d(x,y)=‖x-y‖₂².
-#[inline]
-pub fn euclid_sq_metric<T: Real>(x: &T, y: &T) -> T {
-    let d = *x - *y;
-    // d * d
-    d.powi(2)
-}
-
-/// Fit a piecewise polynomial to the timeseries given by some sample `times` and corresponding
-/// `response`s.
-///
-/// The full model should locally spend no more than `max_seg_dof` degrees of freedom
-/// and globally no more than `max_total_dof` for the full model.
-pub fn fit_pcw_poly<'a, R>(
-    times: &[R],
-    response: &[R],
-    max_total_dof: Option<NonZeroUsize>,
-    max_seg_dof: Option<NonZeroUsize>,
-    weights: Option<&[R]>,
-) -> Option<Solution<'a, R, R>>
-where
-    R: Real
-        + Ord
-        + Signed
-        + Send
-        + Sync
-        + Sum<R>
-        + 'static
-        + Bounded
-        + FromPrimitive
-        + Default
-        + AddAssign,
-{
-    Solution::try_new(
-        max_total_dof,
-        &PcwPolynomialApproximator::fit_metric_data_from_model(
-            PcwPolynomialArgs {
-                max_seg_dof,
-                weights: weights.map(|w| Array1::from(w.to_owned())),
-            },
-            euclid_sq_metric,
-            TimeSeries::new(&times, &response),
-        ),
-        euclid_sq_metric,
-    )
-}
-
-/// Marker trait for primitive floating point types without [Ord] implementations.
-pub trait PrimitiveFloat: Real + Float {}
-impl PrimitiveFloat for f32 {}
-impl PrimitiveFloat for f64 {}
-
-/// The various kinds of errors that can happen during the polynomial fitting process.
-#[derive(Error, Debug, PartialEq, Eq, Clone, Copy)]
+/// A solution of the optimization problem providing an interface to find the globally
+/// minimizing model of the CV score, the OSE optimal model and to investigate the CV and
+/// model functions.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum PolyFitError {
-    #[error("encountered a floating point NaN in the sequence of sample times")]
-    NanInTimes,
-    #[error("encountered a floating point NaN in the sequence of timeseries values / responses")]
-    NanInResponses,
-    #[error("can't fit a polynomial to an empty timeseries")]
-    EmptyData,
+pub struct Solution<T> {
+    model_func: ModelFunc<T>,
+    cv_func: CvFunc<T>,
+    /// CV function downsampled to the jumps of the model function.
+    down_cv_func: CvFunc<T>,
 }
 
-/// Convenience wrapper for [fit_pcw_poly] that wraps floating point types into [OrderedFloat]s.
-pub fn fit_pcw_poly_primitive<'a, R>(
-    times: &[R],
-    response: &[R],
-    max_total_dof: Option<usize>,
-    max_seg_dof: Option<usize>,
-    weights: Option<&[R]>,
-) -> Result<Solution<'a, OrderedFloat<R>, OrderedFloat<R>>, PolyFitError>
+/// Calculate all residual errors of the non-pcw fits
+fn all_residuals<T>(
+    ts: &ValidTimeSeriesSample<T>,
+    up: &MatchedUserParams,
+) -> impl Fn(usize, usize, DegreeOfFreedom) -> T
 where
-    R: PrimitiveFloat
-        + Signed
-        + Send
-        + Sync
-        + Sum
-        + Bounded
-        + FromPrimitive
-        + Default
-        + AddAssign
-        + 'static,
+    T: OrdFloat,
 {
-    let times_nn = times
-        .iter()
-        .map(|x| -> Option<_> { NotNan::new(*x).ok() })
-        .collect::<Option<Vec<_>>>()
-        .ok_or(PolyFitError::NanInTimes)?
-        .into_iter()
-        .map(|x| OrderedFloat(x.into_inner()))
-        .collect_vec();
-    let response_nn = response
-        .iter()
-        .map(|x| -> Option<_> { NotNan::new(*x).ok() })
-        .collect::<Option<Vec<_>>>()
-        .ok_or(PolyFitError::NanInResponses)?
-        .into_iter()
-        .map(|x| OrderedFloat(x.into_inner()))
-        .collect_vec();
-    let weights_nn = weights
-        .map(|w| {
-            Ok(w.iter()
-                .map(|x| -> Option<_> { NotNan::new(*x).ok() })
-                .collect::<Option<Vec<_>>>()
-                .ok_or(PolyFitError::NanInResponses)?
-                .into_iter()
-                .map(|x| OrderedFloat(x.into_inner()))
-                .collect_vec())
-        })
-        .transpose()?;
-    fit_pcw_poly(
-        &times_nn,
-        &response_nn,
-        max_total_dof.map(|n| NonZeroUsize::new(n).unwrap()),
-        max_seg_dof.map(|dof| NonZeroUsize::new(dof).unwrap()),
-        weights_nn.as_deref(),
-    )
-    // TODO: propagate the specific error from a lower level rather than using options along the way.
-    .ok_or(PolyFitError::EmptyData)
-}
-
-/// Turns a partial order on a type into a new one that forgets about the equality of objects;
-/// so two objects x,y are comparable iff x < y or x > y in the original order.
-///
-/// # Example
-/// Please see the test `test_strict_partial_cmp` for an example of how this function is intended
-/// to be used.
-pub(crate) fn strict_partial_cmp<T: PartialOrd>(x: &T, y: &T) -> Option<std::cmp::Ordering> {
-    use std::cmp::Ordering::*;
-    match x.partial_cmp(y) {
-        Some(Equal) => None,
-        x => x,
+    /// Calculate all residual errors of the non-pcw fits. Returns the raw residual data
+    fn all_residuals_raw<S>(
+        timeseries_sample: &ValidTimeSeriesSample<S>,
+        user_params: &MatchedUserParams,
+    ) -> Vec<Array2<S>>
+    where
+        S: OrdFloat,
+    {
+        let max_degree = user_params.max_seg_dof.to_deg();
+        let xs = timeseries_sample.times();
+        let ys = timeseries_sample.response();
+        match timeseries_sample.weights() {
+            Some(weights) => {
+                if cfg!(feature = "parallel_rayon") {
+                    pr::weighted::all_residuals_par(xs, ys, max_degree, weights)
+                } else {
+                    pr::weighted::all_residuals(xs, ys, max_degree, weights)
+                }
+            }
+            None => {
+                if cfg!(feature = "parallel_rayon") {
+                    pr::all_residuals_par(xs, ys, max_degree)
+                } else {
+                    pr::all_residuals(xs, ys, max_degree)
+                }
+            }
+        }
+    }
+    let res = all_residuals_raw(ts, up);
+    move |segment_start_idx, segment_stop_idx, dof| {
+        res[segment_start_idx][[segment_stop_idx - segment_start_idx, usize::from(dof) - 1]]
     }
 }
 
-#[test]
-fn test_strict_partial_cmp() {
-    use crate::strict_partial_cmp;
-    use is_sorted::IsSorted;
+/// Fit a piecewise polynomial to the timeseries sample.
+///
+/// The full model should locally spend no more than `max_seg_dof` degrees of freedom
+/// and globally no more than `max_total_dof` for the full model.
+pub fn try_fit_pcw_poly<T>(
+    timeseries_sample: &TimeSeriesSample<T::Base>,
+    user_params: &UserParams,
+) -> Result<Solution<T>, FitError>
+where
+    T: OrdFloat,
+{
+    // Check the input timeseries for any potential problems
+    let ts = ValidTimeSeriesSample::try_from(timeseries_sample)?;
+    // Resolve optional parameters
+    let matched_params = user_params.match_to_timeseries(&ts);
+    // Calculate all residual errors of the non-pcw fits
+    let res = all_residuals(&ts, &matched_params);
+    Solution::try_new(&ts, &matched_params, res)
+}
 
-    let v = vec![0, 1, 2];
-    assert!(IsSorted::is_sorted(&mut v.iter()));
-    assert!(IsSorted::is_sorted_by(&mut v.iter(), strict_partial_cmp));
+/// A model for a timeseries and its CV score.
+#[derive(new, Debug, Eq, PartialEq, Clone)]
+pub struct ScoredModel<T> {
+    /// A piecewise function where the domain are jump indices and the codomain models (so
+    /// elements of Ω).
+    pub model: VecPcwFn<usize, SegmentModelSpec>,
+    /// The cross validation score of the full model.
+    pub score: T,
+}
 
-    let v = vec![0, 1, 1, 2];
-    assert!(IsSorted::is_sorted(&mut v.iter()));
-    assert!(!IsSorted::is_sorted_by(&mut v.iter(), strict_partial_cmp));
+/// An optimal model with respect to the one standard error rule.
+pub type OseBestModel<T> = ScoredModel<T>;
 
-    let v = vec![2, 1, 9, 2];
-    assert!(!IsSorted::is_sorted(&mut v.iter()));
-    assert!(!IsSorted::is_sorted_by(&mut v.iter(), strict_partial_cmp));
+/// An optimal model minimizing the CV score.
+pub type CvMinimizerModel<T> = ScoredModel<T>;
+
+impl<T> Solution<T>
+where
+    T: OrdFloat,
+{
+    pub fn try_new(
+        timeseries_sample: &ValidTimeSeriesSample<T>,
+        user_params: &MatchedUserParams,
+        training_err: impl Fn(usize, usize, DegreeOfFreedom) -> T,
+    ) -> Result<Self, FitError> {
+        // Solve dynamic program
+        let dp_solution = solve_dp(timeseries_sample, user_params, &training_err);
+        // Determine crossvalidation and model functions; so the functions mapping hyperparameters to the
+        // corresponding optimal CV values and models
+        let (cv_func, model_func) =
+            cv_scores_and_models(timeseries_sample, user_params, &dp_solution, training_err);
+        // resample the cv score function to the model function; folding intervals with a minimum
+        // so if there's an interval on which the models are constant the CV score we associate to
+        // this interval is the minimal one of any penalty on it.
+        let cv_down =
+            cv_func
+                .clone()
+                .resample_to::<VecPcwFn<_, _>, _>(model_func.clone(), |a, b| {
+                    if a.data <= b.data {
+                        a
+                    } else {
+                        b
+                    }
+                });
+        Ok(Self {
+            model_func,
+            cv_func,
+            down_cv_func: cv_down,
+        })
+    }
+
+    /// Return the best model w.r.t. the "one standard error" rule.
+    pub fn ose_best(&self) -> Option<OseBestModel<T>> {
+        let Annotated {
+            metadata: se_min,
+            data: cv_min,
+        } = *self
+            .down_cv_func
+            .funcs()
+            .iter()
+            // compare by cv score
+            .min_by(|cv1, cv2| cv1.data.cmp(&cv2.data))?;
+
+        let (selected_cv, selected_model) = self
+            .down_cv_func
+            .funcs()
+            .iter()
+            .zip(self.model_func.funcs().iter())
+            // reverse since we want the highest gamma possible
+            .rev()
+            // find first model within one se of cv_min
+            .find(|(cv, _model)| (cv.data - cv_min).abs() <= se_min)
+            .unwrap();
+        Some(OseBestModel::new(selected_model.clone(), selected_cv.data))
+    }
+
+    /// Return the global minimizer of the CV score.
+    pub fn cv_minimizer(&self) -> Option<CvMinimizerModel<T>> {
+        self.n_cv_minimizers(1).and_then(|mut vec| vec.pop())
+    }
+
+    /// Return the models corresponding to the `n_best` lowest CV scores.
+    pub fn n_cv_minimizers(&self, n_best: usize) -> Option<Vec<CvMinimizerModel<T>>> {
+        // Sort models in ascending order and pick out the ones with the lowest CV score
+        let best_models = self
+            .down_cv_func
+            .fmap_ref(|cv_and_se| cv_and_se.data) // we only need CV scores without the standard errors
+            .into_funcs()
+            .zip(self.model_func.funcs())
+            .map(|(score, model)| ScoredModel::new(model.clone(), score))
+            .sorted_by(|m1, m2| m1.score.cmp(&m2.score))
+            .take(n_best)
+            .collect();
+        Some(best_models)
+    }
+
+    /// The cross validation function mapping hyperparameters γ to CV scores (and their
+    /// approximate standard errors).
+    pub fn cv_func(&self) -> &CvFunc<T> {
+        &self.cv_func
+    }
+
+    /// The cross validation function downsampled to the jumps of the model function.
+    pub fn downsampled_cv_func(&self) -> &CvFunc<T> {
+        &self.down_cv_func
+    }
+
+    /// The model function mapping hyperparameters γ to the corresponding solutions of
+    /// the penalized partition problem.
+    pub fn model_func(&self) -> &ModelFunc<T> {
+        &self.model_func
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod solve_dp {
+
+        use super::*;
+        use crate::solve_dp::{BellmanTable, CutPath, OptimalJumpData, RefDofPartition};
+        use ndarray::arr2;
+
+        fn fit<T>(raw_data: Vec<T::Base>, up: UserParams) -> OptimalJumpData<T>
+        where
+            T: OrdFloat,
+        {
+            use num_traits::FromPrimitive;
+            let times = (0..raw_data.len())
+                .into_iter()
+                .map(T::Base::from_usize)
+                .map(Option::unwrap)
+                .collect_vec();
+            let timeseries_sample = TimeSeriesSample::try_new(&times, &raw_data, None).unwrap();
+            let ts = ValidTimeSeriesSample::try_from(&timeseries_sample).unwrap();
+            // Resolve optional parameters
+            let up = up.match_to_timeseries(&ts);
+            solve_dp(&ts, &up, all_residuals(&ts, &up))
+        }
+
+        #[test]
+        #[cfg_attr(
+            feature = "dofs-sub-one",
+            ignore = "This test is only implemented for the case where the `dofs-sub-one` feature is disabled"
+        )]
+        fn optimal_jump_data() {
+            use ordered_float::OrderedFloat;
+            let raw_data = vec![8., 9., 10., 1., 4., 9., 16.];
+            let opt = fit(raw_data.clone(), UserParams::default());
+
+            let es = arr2(&[
+                [
+                    Some(OrderedFloat(0.0)),
+                    Some(OrderedFloat(0.5000000000000006)),
+                    Some(OrderedFloat(1.9999999999999991)),
+                    Some(OrderedFloat(50.00000000000001)),
+                    Some(OrderedFloat(57.20000000000001)),
+                    Some(OrderedFloat(62.83333333333334)),
+                    Some(OrderedFloat(134.8571428571429)),
+                ],
+                [
+                    None,
+                    Some(OrderedFloat(0.0)),
+                    Some(OrderedFloat(3.0814879110195774e-31)),
+                    Some(OrderedFloat(1.9999999999999991)),
+                    Some(OrderedFloat(6.499999999999998)),
+                    Some(OrderedFloat(34.666666666666664)),
+                    Some(OrderedFloat(62.83333333333334)),
+                ],
+                [
+                    None,
+                    None,
+                    Some(OrderedFloat(0.0)),
+                    Some(OrderedFloat(3.0814879110195774e-31)),
+                    Some(OrderedFloat(1.9999999999999991)),
+                    Some(OrderedFloat(2.6666666666666656)),
+                    Some(OrderedFloat(6.0)),
+                ],
+                [
+                    None,
+                    None,
+                    None,
+                    Some(OrderedFloat(0.0)),
+                    Some(OrderedFloat(3.0814879110195774e-31)),
+                    Some(OrderedFloat(0.6666666666666666)),
+                    Some(OrderedFloat(1.9999999999999991)),
+                ],
+                [
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(OrderedFloat(0.0)),
+                    Some(OrderedFloat(3.0814879110195774e-31)),
+                    Some(OrderedFloat(3.5745259767827097e-31)),
+                ],
+                [
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(OrderedFloat(0.0)),
+                    Some(OrderedFloat(4.930380657631324e-32)),
+                ],
+                [None, None, None, None, None, None, Some(OrderedFloat(0.0))],
+            ]);
+
+            let pc = arr2(&[
+                [
+                    None,
+                    Some(CutPath::NoCuts),
+                    Some(CutPath::NoCuts),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
+                        elem_after_prev_cut: 3,
+                    }),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
+                        elem_after_prev_cut: 3,
+                    }),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
+                        elem_after_prev_cut: 3,
+                    }),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
+                        elem_after_prev_cut: 6,
+                    }),
+                ],
+                [
+                    None,
+                    None,
+                    Some(CutPath::NoCuts),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(2),
+                        elem_after_prev_cut: 3,
+                    }),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(2),
+                        elem_after_prev_cut: 4,
+                    }),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
+                        elem_after_prev_cut: 3,
+                    }),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
+                        elem_after_prev_cut: 3,
+                    }),
+                ],
+                [
+                    None,
+                    None,
+                    None,
+                    Some(CutPath::NoCuts),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(3),
+                        elem_after_prev_cut: 4,
+                    }),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(2),
+                        elem_after_prev_cut: 3,
+                    }),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(1),
+                        elem_after_prev_cut: 3,
+                    }),
+                ],
+                [
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(CutPath::NoCuts),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(4),
+                        elem_after_prev_cut: 5,
+                    }),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(2),
+                        elem_after_prev_cut: 3,
+                    }),
+                ],
+                [
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(CutPath::NoCuts),
+                    Some(CutPath::SomeCuts {
+                        remaining_dofs: dof!(3),
+                        elem_after_prev_cut: 3,
+                    }),
+                ],
+                [None, None, None, None, None, None, Some(CutPath::NoCuts)],
+            ]);
+
+            // One of these is computed using the old code. We verify against this
+            assert_eq!(
+                opt,
+                OptimalJumpData {
+                    energies: BellmanTable { energies: es },
+                    prev_cuts: pc,
+                    max_seg_dof: DegreeOfFreedom::try_from(7).unwrap(),
+                }
+            );
+            let n = |v: Vec<usize>| -> Vec<DegreeOfFreedom> {
+                v.into_iter()
+                    .map(DegreeOfFreedom::try_from)
+                    .map(Result::unwrap)
+                    .collect()
+            };
+            // println!("{:?}", opt.energies);
+
+            assert_eq!(
+                RefDofPartition {
+                    cut_indices: &vec![2],
+                    segment_dofs: &n(vec![2, 3]),
+                },
+                RefDofPartition::from(&opt.optimal_cuts(dof!(5)).unwrap())
+            );
+            assert_eq!(
+                RefDofPartition {
+                    cut_indices: &vec![2],
+                    segment_dofs: &n(vec![1, 3]),
+                },
+                RefDofPartition::from(&opt.optimal_cuts(dof!(4)).unwrap())
+            );
+            assert_eq!(
+                RefDofPartition {
+                    cut_indices: &vec![2],
+                    segment_dofs: &n(vec![1, 2]),
+                },
+                RefDofPartition::from(&opt.optimal_cuts(dof!(3)).unwrap())
+            );
+        }
+    }
 }

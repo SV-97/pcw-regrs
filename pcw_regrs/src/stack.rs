@@ -26,6 +26,42 @@ where
     phantom: PhantomData<T>,
 }
 
+impl<T, B> Stack<T, B>
+where
+    T: Copy,
+    B: AsRef<[MaybeUninit<T>]> + AsMut<[MaybeUninit<T>]>,
+{
+    /// Split the stack into two of approximately equal size. This empties the current stack.
+    /// Former TOS is now on the right return value.
+    pub fn split(&mut self) -> [Stack<T, &mut [MaybeUninit<T>]>; 2] {
+        let buffer_r_len = self.push_count / 2;
+        println!(
+            "splitting {} into {} and {}",
+            self.push_count,
+            buffer_r_len,
+            self.push_count - buffer_r_len
+        );
+        // We split off the right buffer *from the back*
+        // so buffer = [..., buffer_l, buffer_r]
+        //                           ^
+        //                         split
+        let split_loc = self.buffer.as_ref().len() - buffer_r_len;
+        let (buffer_l, buffer_r) = self.buffer.as_mut().split_at_mut(split_loc);
+        let stack_l: Stack<T, &mut [MaybeUninit<T>]> = Stack {
+            buffer: buffer_l,
+            push_count: self.push_count - buffer_r_len,
+            phantom: PhantomData,
+        };
+        let stack_r: Stack<T, &mut [MaybeUninit<T>]> = Stack {
+            buffer: buffer_r,
+            push_count: buffer_r_len,
+            phantom: PhantomData,
+        };
+        self.push_count = 0;
+        [stack_l, stack_r]
+    }
+}
+
 impl<T: Copy, const N: usize> Stack<T, [MaybeUninit<T>; N]> {
     /// Construct a new stack on the stack
     pub const fn new_on_stack() -> Self {
@@ -330,5 +366,33 @@ mod tests {
         s.clear();
         s.push(5);
         assert_eq!(s.pop(), 5);
+    }
+
+    #[test]
+    fn split_even() {
+        let mut s = Stack::<_, [_; 20]>::new_on_stack();
+        for i in 0..8 {
+            s.push(2 * i + 1);
+        }
+        {
+            let [s1, s2] = s.split();
+            assert_eq!(s1.filled(), &[15, 13, 11, 9,]);
+            assert_eq!(s2.filled(), &[7, 5, 3, 1,]);
+        }
+        assert_eq!(s.filled(), &[]);
+    }
+
+    #[test]
+    fn split_odd() {
+        let mut s = Stack::<_, [_; 20]>::new_on_stack();
+        for i in 0..9 {
+            s.push(2 * i + 1);
+        }
+        {
+            let [s1, s2] = s.split();
+            assert_eq!(s1.filled(), &[17, 15, 13, 11, 9,]);
+            assert_eq!(s2.filled(), &[7, 5, 3, 1,]);
+        }
+        assert_eq!(s.filled(), &[]);
     }
 }

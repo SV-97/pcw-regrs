@@ -1,6 +1,7 @@
 //! Python API for the `pcw_regrs` Rust crate. Please see the corresponding
 //! documentation for more detailed information on the Rust internals.
 
+use std::num::NonZeroUsize;
 #[cfg(feature = "show_times")]
 use std::time::Instant;
 
@@ -17,22 +18,7 @@ use pyo3::{exceptions::PyRuntimeError, prelude::*, types::PyBytes};
 use serde::{de, ser::SerializeStruct, Deserialize, Serialize};
 
 type Float = f64;
-
-/*
-fn pyarray_to_solution(
-    sample_times: PyReadonlyArray1<Float>,
-    response_values: PyReadonlyArray1<Float>,
-    max_total_dof: Option<usize>,
-    max_seg_dof: Option<usize>,
-) -> Result<rs::Solution<OrderedFloat<Float>>, rs::PolyFitError> {
-    rs::fit_pcw_poly_primitive(
-        sample_times.as_slice().unwrap(),
-        response_values.as_slice().unwrap(),
-        max_total_dof,
-        max_seg_dof,
-    )
-}
-*/
+type OFloat = OrderedFloat<f64>;
 
 #[pyfunction]
 // #[args(max_total_dof = "None", max_seg_dof = "None", weights = "None")]
@@ -43,12 +29,23 @@ pub fn fit_pcw_poly(
     max_seg_dof: Option<usize>,
     weights: Option<PyReadonlyArray1<Float>>,
 ) -> Solution {
-    rs::fit_pcw_poly_primitive(
-        sample_times.as_slice().unwrap(),
-        response_values.as_slice().unwrap(),
-        max_total_dof,
-        max_seg_dof,
-        weights.as_ref().map(|w| w.as_slice().unwrap()),
+    rs::try_fit_pcw_poly(
+        &rs::TimeSeriesSample::try_new(
+            sample_times.as_slice().unwrap(),
+            response_values.as_slice().unwrap(),
+            weights.as_ref().map(|w| w.as_slice().unwrap()),
+        )
+        .unwrap(),
+        &rs::UserParams {
+            max_total_dof: max_total_dof.map(|u| {
+                NonZeroUsize::new(u)
+                    .expect("Invalid argument: total degrees of freedom have to be nonzero")
+            }),
+            max_seg_dof: max_seg_dof.map(|u| {
+                NonZeroUsize::new(u)
+                    .expect("Invalid argument: segment degrees of freedom have to be nonzero")
+            }),
+        },
     )
     .map(Solution::from_rs)
     .unwrap()
@@ -58,20 +55,18 @@ pub fn fit_pcw_poly(
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Solution {
-    sol: Option<rs::SolutionCore<OrderedFloat<Float>, OrderedFloat<Float>>>,
+    sol: Option<rs::Solution<OFloat>>,
 }
 
 impl Solution {
-    pub fn from_rs(sol: rs::Solution<'static, OrderedFloat<Float>, OrderedFloat<Float>>) -> Self {
-        Self {
-            sol: Some(rs::SolutionCore::from(sol)),
-        }
+    pub fn from_rs(sol: rs::Solution<OFloat>) -> Self {
+        Self { sol: Some(sol) }
     }
 }
 
 impl Solution {
-    fn sol<'a>(&'a self) -> Option<rs::Solution<'a, OrderedFloat<Float>, OrderedFloat<Float>>> {
-        self.sol.as_ref().map(rs::Solution::from)
+    fn sol<'a>(&'a self) -> Option<rs::Solution<OFloat>> {
+        self.sol.clone()
     }
 }
 
@@ -194,18 +189,18 @@ pub struct PolyModelSpec {
 }
 
 impl PolyModelSpec {
-    // pub fn from_rs(sm: pcw_regrs::SegmentModelSpec<NonZeroUsize>) -> Self {
+    // pub fn from_rs(sm: rs::SegmentModelSpec<NonZeroUsize>) -> Self {
     //     PolyModelSpec {
     //         start_idx: sm.start_idx,
     //         stop_idx: sm.stop_idx,
     //         degrees_of_freedom: usize::from(sm.model),
     //     }
     // }
-    pub fn from_rs<'a, R>(sm: pcw_regrs::SegmentModelSpec<rs::PolynomialArgs<'a, R>>) -> Self {
+    pub fn from_rs(sm: rs::SegmentModelSpec) -> Self {
         PolyModelSpec {
             start_idx: sm.start_idx,
             stop_idx: sm.stop_idx,
-            degrees_of_freedom: usize::from(sm.model.dof),
+            degrees_of_freedom: usize::from(sm.seg_dof),
         }
     }
 }
@@ -223,8 +218,8 @@ pub struct ScoredPolyModel {
 }
 
 impl ScoredPolyModel {
-    pub fn from_rs(scored_model: pcw_regrs::ScoredPolyModel<OrderedFloat<Float>>) -> Self {
-        let pcw_regrs::ScoredPolyModel { model, score, .. } = scored_model;
+    pub fn from_rs(scored_model: rs::ScoredModel<OFloat>) -> Self {
+        let rs::ScoredModel { model, score, .. } = scored_model;
         let (jumps, funcs) = model.into_jumps_and_funcs();
         ScoredPolyModel {
             cv_score: Float::from(score),
@@ -322,7 +317,7 @@ impl<'de> de::Deserialize<'de> for PcwConstFn {
 }
 
 impl PcwConstFn {
-    pub fn from_rs(pcw_fn: impl PcwFn<OrderedFloat<Float>, OrderedFloat<Float>>) -> Self {
+    pub fn from_rs(pcw_fn: impl PcwFn<OFloat, OFloat>) -> Self {
         let (jumps, funcs) = pcw_fn.into_jumps_and_funcs();
         PcwConstFn {
             jump_points: Python::with_gil(|py| {

@@ -148,7 +148,7 @@ where
                 jumps.push(new_jump);
                 minimals.push(right_fn);
             }
-            Some(Pcw::try_from_iters(jumps.into_iter(), minimals.into_iter()).unwrap())
+            Some(Pcw::try_from_iters(jumps, minimals).unwrap())
         }
     }
 }
