@@ -9,8 +9,8 @@ The algorithm is implemented in Rust in the `pcw_regrs` subdirectory. A Python A
 
 # Building
 
-[!NOTE]
-Note that building currently requires a the nightly rust compiler which may be easily installed using `rustup toolchain install nightly`. We're only using it for [`let-chains`](https://github.com/rust-lang/rust/issues/53667); these could be removed relatively easily if a stable variant is needed, at the expense of making the code a bit more verbose. See also the [`https://crates.io/crates/if_chain`](if_chain) crate in this regard.
+> [!NOTE]
+> Note that building currently requires a the nightly rust compiler which may be easily installed using `rustup toolchain install nightly`. We're only using it for [`let-chains`](https://github.com/rust-lang/rust/issues/53667); these could be removed relatively easily if a stable variant is needed, at the expense of making the code a bit more verbose. See also the [`https://crates.io/crates/if_chain`](if_chain) crate in this regard.
 
 ## Rust
 
@@ -18,8 +18,8 @@ The pure Rust part is a regular `cargo` project and can be managed accordingly. 
 
 ## Python
 
-[!IMPORTANT]
-Usually building from source is not necessary and you can simply install `pcw-regrs-py` via `pip`.
+> [!IMPORTANT]
+> Usually building from source is not necessary and you can simply install `pcw-regrs-py` via `pip`.
 
 To build the python package install [maturin](https://www.maturin.rs/) for example via `pip` by running
 
