@@ -33,4 +33,4 @@ Running
 maturin develop --release
 ```
 
-from the python subfolder (`pcw_regrs_py`) will compile an release (=optimized) build, build a python wheel and install it locally. For more details like how to cross compile please consult the maturin documentation.
+from the [python subfolder](pcw_regrs_py) will compile an release (=optimized) build, build a python wheel and install it locally. For more details like how to cross compile please consult the maturin documentation.
