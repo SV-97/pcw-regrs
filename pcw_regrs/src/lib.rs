@@ -240,6 +240,10 @@ mod tests {
         }
 
         #[test]
+        #[cfg_attr(
+            feature = "dofs-sub-one",
+            ignore = "This test is only implemented for the case where the `dofs-sub-one` feature is disabled"
+        )]
         fn optimal_jump_data() {
             use ordered_float::OrderedFloat;
             let raw_data = vec![8., 9., 10., 1., 4., 9., 16.];
