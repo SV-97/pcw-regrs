@@ -174,6 +174,31 @@ where
         Some(OseBestModel::new(selected_model.clone(), selected_cv.data))
     }
 
+    /// Return the best model w.r.t. the "x-times standard error" rule.
+    pub fn xse_best(&self, x: T) -> Option<OseBestModel<T>> {
+        let Annotated {
+            metadata: se_min,
+            data: cv_min,
+        } = *self
+            .down_cv_func
+            .funcs()
+            .iter()
+            // compare by cv score
+            .min_by(|cv1, cv2| cv1.data.cmp(&cv2.data))?;
+
+        let (selected_cv, selected_model) = self
+            .down_cv_func
+            .funcs()
+            .iter()
+            .zip(self.model_func.funcs().iter())
+            // reverse since we want the highest gamma possible
+            .rev()
+            // find first model within one se of cv_min
+            .find(|(cv, _model)| (cv.data - cv_min).abs() <= x * se_min)
+            .unwrap();
+        Some(OseBestModel::new(selected_model.clone(), selected_cv.data))
+    }
+
     /// Return the global minimizer of the CV score.
     pub fn cv_minimizer(&self) -> Option<CvMinimizerModel<T>> {
         self.n_cv_minimizers(1).and_then(|mut vec| vec.pop())

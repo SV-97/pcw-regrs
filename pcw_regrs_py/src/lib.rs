@@ -109,6 +109,18 @@ impl Solution {
         }
     }
 
+    /// Return the best model w.r.t. the "x-times standard error" rule.
+    pub fn xse_best(&self, x: Float) -> PyResult<ScoredPolyModel> {
+        match self.sol() {
+            None => Err(PyRuntimeError::new_err("Internal error.")),
+            Some(sol) => {
+                let xse = sol.xse_best(OrderedFloat(x)).unwrap();
+                let scored_model = ScoredPolyModel::from_rs(xse);
+                Ok(scored_model)
+            }
+        }
+    }
+
     /// Return the global minimizer of the CV score.
     pub fn cv_minimizer(&self) -> PyResult<ScoredPolyModel> {
         match self.sol() {
