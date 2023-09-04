@@ -137,7 +137,7 @@ class PcwPolynomial(PcwFn):
             weights,
         ).ose_best()
         return Self.from_data_and_model(timeseries, model, jump_locator, weights)
-    
+
     @classmethod
     def fit_xse(
         Self,
@@ -156,6 +156,26 @@ class PcwPolynomial(PcwFn):
             max_segment_degree + 1 if max_segment_degree is not None else None,
             weights,
         ).xse_best(xse_factor)
+        return Self.from_data_and_model(timeseries, model, jump_locator, weights)
+
+    @classmethod
+    def fit_with_penalty(
+        Self,
+        timeseries: TimeSeriesSample,
+        penalty: np.float64,
+        jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
+        max_segment_degree: Optional[Integral] = None,
+        max_total_dof: Optional[Integral] = None,
+        weights: npt.NDArray[np.float64] = None,
+    ) -> "PcwPolynomial":
+        """Fit the best model with respect to the se_factor standard error rule."""
+        model = _rs.fit_pcw_poly(
+            timeseries.sample_times,
+            timeseries.values,
+            max_total_dof,
+            max_segment_degree + 1 if max_segment_degree is not None else None,
+            weights,
+        ).model_for_penalty(penalty)
         return Self.from_data_and_model(timeseries, model, jump_locator, weights)
 
     def __str__(self):
