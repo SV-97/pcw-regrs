@@ -78,14 +78,14 @@ impl ScoredPolyModel {
             self.cut_idxs
                 .iter()
                 .fold("[".to_string(), |cur, elem| match cur.as_str() {
-                    "[" => format!("{:#?}", elem),
+                    "[" => cur + &format!("{:#?}", elem),
                     _ => cur + &format!(", {:#?}", elem),
                 })
                 + "]",
             self.model_params
                 .iter()
                 .fold("[".to_string(), |cur, elem| match cur.as_str() {
-                    "[" => format!("{}", elem.__repr__()),
+                    "[" => cur + &format!("{}", elem.__repr__()),
                     _ => cur + &format!(", {}", elem.__repr__()),
                 })
                 + "]",
