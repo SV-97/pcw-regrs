@@ -114,6 +114,9 @@ pub type OseBestModel<T> = ScoredModel<T>;
 /// An optimal model minimizing the CV score.
 pub type CvMinimizerModel<T> = ScoredModel<T>;
 
+/// Maps each penalty γ to the corresponding optimal model.
+pub type ScoredModelFunc<T> = VecPcwFn<T, ScoredModel<T>>;
+
 impl<T> Solution<T>
 where
     T: OrdFloat,
@@ -219,6 +222,13 @@ where
         Some(best_models)
     }
 
+    /// Returns the optimal model corresponding to the given penalty γ
+    pub fn model_for_penalty(&self, penalty: T) -> ScoredModel<T> {
+        let Annotated { data: cv_score, .. } = self.down_cv_func.func_at(&penalty);
+        let model = self.model_func.func_at(&penalty);
+        ScoredModel::new(model.clone(), cv_score.clone())
+    }
+
     /// The cross validation function mapping hyperparameters γ to CV scores (and their
     /// approximate standard errors).
     pub fn cv_func(&self) -> &CvFunc<T> {
@@ -234,6 +244,25 @@ where
     /// the penalized partition problem.
     pub fn model_func(&self) -> &ModelFunc<T> {
         &self.model_func
+    }
+
+    /// The model function mapping hyperparameters γ to the corresponding solutions of
+    /// the penalized partition problem.
+    pub fn scored_model_func(&self) -> ScoredModelFunc<T> {
+        ScoredModelFunc::try_from_iters(
+            self.model_func.jumps().iter().cloned(),
+            self.model_func
+                .funcs()
+                .iter()
+                .zip(
+                    self.down_cv_func
+                        .funcs()
+                        .iter()
+                        .map(|Annotated { data: cv_score, .. }| cv_score),
+                )
+                .map(|(model, cv_score)| ScoredModel::new(model.clone(), cv_score.clone())),
+        )
+        .unwrap()
     }
 }
 
