@@ -8,10 +8,11 @@ Input: {
     sample: Timeseries Sample
     Optional algorithm parameters: {
       grid-gap: 0
-      grid-columns: 3
+      grid-columns: 5
       max_total_dof: Maximum total dofs
       max_seg_dof: Maximum segment / local dofs
       residual: Training errors
+      weights: Weights
     }
   }
 }
@@ -63,6 +64,7 @@ main: Main Algorithm {
 
   solution -> CV-optimal pcw function
   solution -> OSE-optimal pcw function
+  solution -> Solution for arbitrary penalties
 }
 
 Postprocessing: {
