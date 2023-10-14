@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 from numbers import Integral, Real
 from bisect import bisect
+import pycw_fn
 
 
 def continuity_opt_jumps(polys: List[np.polynomial.Polynomial], jump_idxs, sample_times) -> np.ndarray:
@@ -72,6 +73,109 @@ class PcwFn():
             return np.array([funcs[bisect(jumps, x)](x) for x in xs]).reshape(x.shape)
         else:
             return self.funcs[bisect(self.jumps, x)](x)
+
+
+class PcwConstFn(pycw_fn.PcwFn):
+    values: np.ndarray
+    jump_points: np.ndarray
+
+    def __init__(self, values, jump_points): pass
+
+    @staticmethod
+    def _constant_polynomial(x: float) -> np.polynomial.Polynomial:
+        """Construct a constant polynomial function"""
+        return np.polynomial.Polynomial([x])
+
+    @classmethod
+    def _from_rs(Self, func: _rs.PcwConstFn):
+        """Converts a piecewise function from its native representation into a callable python function"""
+        return Self(func.values, func.jump_points)
+
+    def __new__(Self, values, jump_points):
+        native = pycw_fn.PcwFn.from_funcs_and_jumps(
+            [PcwConstFn._constant_polynomial(y) for y in values], jump_points)._native
+        self = super().__new__(Self)
+        super().__init__(self, native)
+        self.values = values
+        self.jump_points = jump_points
+        return self
+
+
+class Solution():
+    _sol: _rs.Solution
+    sample: TimeSeriesSample
+    weights: Optional[np.ndarray]
+
+    def __init__(self, _sol, sample, weights):
+        self._sol = _sol
+        self.sample = sample
+        self.weights = weights
+
+    @classmethod
+    def fit(
+            Self,
+            sample: TimeSeriesSample,
+            max_total_dof: Optional[Integral] = None,
+            max_segment_degree: Optional[Integral] = 15,
+            weights=None,) -> "Solution":
+        """Construct a solution to piecewise regression problem on the given data"""
+        return Self(
+            _rs.fit_pcw_poly(
+                sample.sample_times,
+                sample.values,
+                max_total_dof,
+                max_segment_degree + 1 if max_segment_degree is not None else None,
+                weights,
+            ),
+            sample, weights
+        )
+
+    def n_best(self,
+               jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
+               n_best: Integral = 1,
+               ) -> "PcwPolynomial":
+        """Get the n models with the n lowest CV scores."""
+        models = self._sol.n_cv_minimizers(n_best)
+        return [PcwPolynomial.from_data_and_model(self.sample, model, jump_locator, self.weights) for model in models]
+
+    def ose(self, jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,) -> "PcwPolynomial":
+        """Get the best model with respect to the one standard error rule."""
+        model = self._sol.ose_best()
+        return PcwPolynomial.from_data_and_model(self.sample, model, jump_locator, self.weights)
+
+    def xse(
+        self,
+        xse_factor: Optional[np.float64] = 1.0,
+        jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
+    ) -> "PcwPolynomial":
+        """Get the best model with respect to the se_factor standard error rule."""
+        model = self._sol.xse_best(xse_factor)
+        return PcwPolynomial.from_data_and_model(self.sample, model, jump_locator, self.weights)
+
+    def with_penalty(
+        self,
+        penalty: np.float64,
+        jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
+    ) -> "PcwPolynomial":
+        """Get the best model with the given penalty (gamma)."""
+        model = self._sol.model_for_penalty(penalty)
+        return PcwPolynomial.from_data_and_model(self.sample, model, jump_locator, self.weights)
+
+    @property
+    def cv_func(self) -> PcwConstFn:
+        return PcwConstFn._from_rs(self._sol.cv_func())
+
+    @property
+    def downsampled_cv_func(self) -> PcwConstFn:
+        return PcwConstFn._from_rs(self._sol.downsampled_cv_func())
+
+    @property
+    def cv_se_func(self) -> PcwConstFn:
+        return PcwConstFn._from_rs(self._sol.cv_se_func())
+
+    @property
+    def downsampled_cv_se_func(self) -> PcwConstFn:
+        return PcwConstFn._from_rs(self._sol.downsampled_cv_se_func())
 
 
 @dataclass(frozen=True)
@@ -142,11 +246,11 @@ class PcwPolynomial(PcwFn):
     def fit_xse(
         Self,
         timeseries: TimeSeriesSample,
+        xse_factor: Optional[np.float64] = 1.0,
         jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
         max_segment_degree: Optional[Integral] = None,
         max_total_dof: Optional[Integral] = None,
         weights: npt.NDArray[np.float64] = None,
-        xse_factor: Optional[np.float64] = 1.0,
     ) -> "PcwPolynomial":
         """Fit the best model with respect to the se_factor standard error rule."""
         model = _rs.fit_pcw_poly(
@@ -168,7 +272,7 @@ class PcwPolynomial(PcwFn):
         max_total_dof: Optional[Integral] = None,
         weights: npt.NDArray[np.float64] = None,
     ) -> "PcwPolynomial":
-        """Fit the best model with respect to the se_factor standard error rule."""
+        """Fit the best model with the given penalty (gamma)."""
         model = _rs.fit_pcw_poly(
             timeseries.sample_times,
             timeseries.values,
