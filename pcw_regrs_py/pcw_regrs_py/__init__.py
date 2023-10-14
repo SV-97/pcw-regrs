@@ -82,9 +82,9 @@ class PcwConstFn(pycw_fn.PcwFn):
     def __init__(self, values, jump_points): pass
 
     @staticmethod
-    def _constant_polynomial(x: float) -> np.polynomial.Polynomial:
-        """Construct a constant polynomial function"""
-        return np.polynomial.Polynomial([x])
+    def _constant_func(x: float) -> np.polynomial.Polynomial:
+        """Construct a constant function"""
+        return lambda _: x
 
     @classmethod
     def _from_rs(Self, func: _rs.PcwConstFn):
@@ -93,7 +93,7 @@ class PcwConstFn(pycw_fn.PcwFn):
 
     def __new__(Self, values, jump_points):
         native = pycw_fn.PcwFn.from_funcs_and_jumps(
-            [PcwConstFn._constant_polynomial(y) for y in values], jump_points)._native
+            [PcwConstFn._constant_func(y) for y in values], jump_points)._native
         self = super().__new__(Self)
         super().__init__(self, native)
         self.values = values
@@ -176,6 +176,14 @@ class Solution():
     @property
     def downsampled_cv_se_func(self) -> PcwConstFn:
         return PcwConstFn._from_rs(self._sol.downsampled_cv_se_func())
+
+    def model_func(self) -> PcwConstFn:
+        mf = self._sol.model_func()
+        return PcwConstFn(
+            values=[PcwPolynomial.from_data_and_model(
+                self.sample, m, weights=self.weights) for m in mf.values],
+            jump_points=mf.jump_points,
+        )
 
 
 @dataclass(frozen=True)
