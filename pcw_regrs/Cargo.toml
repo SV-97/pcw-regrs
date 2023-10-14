@@ -1,6 +1,6 @@
 [package]
 name = "pcw_regrs"
-version = "1.7.0"
+version = "1.8.0"
 edition = "2021"
 publish = false    # prevent accidental publishing
 
@@ -30,9 +30,9 @@ indoc = "2.0.3"
 maybe-debug = "0.1.0"
 
 [features]
+default = ["serde", "dofs-sub-one", "parallel_rayon"]
 serde = ["dep:serde"]
 nightly-only = ["polyfit-residuals/nightly-only"]
-default = ["serde", "dofs-sub-one"]
 parallel_rayon = ["dep:rayon", "polyfit-residuals/parallel_rayon"]
 # If this feature is enabled then a segment of n data points is allowed no more than n-1 dofs
 # rather than the n dofs we usually allow. This behaviour corresponds to the preconditions of

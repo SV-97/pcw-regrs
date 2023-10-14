@@ -264,6 +264,7 @@ where
         let mut minimizer = minimizers::ImmediateMinimizer::new(cmp);
         // let mut minimizer =
         //     minimizers::VecMinimizer::with_capacity(approximate_capacity_bound, cmp);
+        // let mut minimizer = minimizers::PostParallelMinimizer::new(cmp);
 
         // iteratively solve using bottom-up DP scheme:
         // "for all right segment boundaries"
@@ -521,6 +522,7 @@ mod minimizers {
     pub use immediate_minimizer::*;
     #[cfg(feature = "dep:rtrb")]
     pub use parallel_minimizer::*;
+    pub use post_parallel_minimizer::*;
     pub use stack_minimizer::*;
     pub use vec_minimizer::*;
 
@@ -809,6 +811,62 @@ mod minimizers {
                     // Indicate to the processor that we're currently
                     // waiting even if it's for a veery short while
                     std::hint::spin_loop();
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "parallel_rayon")]
+    mod post_parallel_minimizer {
+        use super::{MinHandle, Minimizer};
+        use rayon::prelude::{IndexedParallelIterator, ParallelDrainRange, ParallelIterator};
+        use rayon::{ThreadPool, ThreadPoolBuilder};
+
+        /// A minimizer that runs minimization in parallel in a thread pool
+        pub struct PostParallelMinimizer<T, F> {
+            cmp: F,
+            vals: Vec<T>,
+            pool: ThreadPool,
+        }
+
+        pub struct PostParMinHandle<'a, T, F> {
+            minimizer: &'a mut PostParallelMinimizer<T, F>,
+        }
+
+        impl<'a, T, F> MinHandle<T> for PostParMinHandle<'a, T, F>
+        where
+            T: Send + 'static,
+        {
+            fn add_to_min(&mut self, val: T) {
+                self.minimizer.vals.push(val)
+            }
+        }
+
+        impl<T, F> Minimizer<T> for PostParallelMinimizer<T, F>
+        where
+            T: Send + 'static,
+            F: Fn(&T, &T) -> std::cmp::Ordering + Send + Sync + 'static,
+        {
+            type Handle<'a> = PostParMinHandle<'a, T, F>;
+            fn minimize(&'_ mut self, func: impl FnOnce(PostParMinHandle<'_, T, F>)) -> T {
+                self.vals.clear();
+                let handle: PostParMinHandle<'_, T, F> = PostParMinHandle { minimizer: self };
+                func(handle);
+                self.pool
+                    .install(|| self.vals.par_drain(..).rev().min_by(&self.cmp).unwrap())
+            }
+        }
+
+        impl<T, F> PostParallelMinimizer<T, F>
+        where
+            T: Send + 'static,
+            F: Fn(&T, &T) -> std::cmp::Ordering + Send + Sync + 'static,
+        {
+            pub fn new(cmp: F) -> PostParallelMinimizer<T, F> {
+                Self {
+                    cmp,
+                    vals: vec![],
+                    pool: ThreadPoolBuilder::new().num_threads(24).build().unwrap(),
                 }
             }
         }
