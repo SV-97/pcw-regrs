@@ -126,8 +126,17 @@ where
         let max_total_seg_dofs = {
             // Safety: rb starts at 0 such that rb+1 is nonzero. Furthermore we're only going up to
             // data_len - 1 <= usize::MAX such that there can be no overflows in the rb+1.
-            let absolute_bound = DegreeOfFreedom::try_from(rb + 1).unwrap();
-            std::cmp::min(absolute_bound, user_params.max_total_dof)
+            let upper_bound_due_to_segment_len = if cfg!(feature = "dofs-sub-one") {
+                if rb == 0 {
+                    // there can be no model on data[0] if we don't allow a constant model in this case
+                    continue;
+                } else {
+                    DegreeOfFreedom::try_from(rb).unwrap()
+                }
+            } else {
+                DegreeOfFreedom::try_from(rb + 1).unwrap()
+            };
+            std::cmp::min(upper_bound_due_to_segment_len, user_params.max_total_dof)
         };
         // opt.max_total_seg_dofs(0, rb);
         // let max_seg_dofs = opt.max_seg_dofs(0, rb);
@@ -176,6 +185,19 @@ where
                     (training_error, cv_score)
                 }
             };
+
+            //  struct for getting debug info about partial cv scores
+            // #[derive(Debug)]
+            // struct Dbg<'a, T> {
+            //     right_boundary: usize,
+            //     n_dofs: usize,
+            //     cv_score: &'a T,
+            // }
+            // maybe_debug::dbg!(Dbg {
+            //     right_boundary: rb,
+            //     n_dofs: n_dofs,
+            //     cv_score: &cv_score
+            // });
 
             affines.push(Annotated::new(
                 AffineFunction::new(
