@@ -209,7 +209,7 @@ impl PcwConstFn {
 #[pymethods]
 impl PcwConstFn {
     #[new]
-    #[args(jump_points = "None", values = "None")]
+    #[pyo3(signature=(jump_points = None, values = None))]
     pub fn new(
         jump_points: Option<Py<PyArray1<Float>>>,
         values: Option<Py<PyArray1<Float>>>,

@@ -1,6 +1,6 @@
 [package]
 name = "pcw_regrs"
-version = "1.8.0"
+version = "1.8.1"
 edition = "2021"
 publish = false    # prevent accidental publishing
 
@@ -12,9 +12,9 @@ codegen-units = 1
 debug = true
 
 [dependencies]
-derive-new = "0.5.9"
+derive-new = "0.6.0"
 ndarray = { version = "0.15.6", features = ["serde"] }
-ordered-float = { version = "3.7.0", features = ["serde"] }
+ordered-float = { version = "4.1.1", features = ["serde"] }
 pcw_fn = { version = "0.2.1", features = ["serde"] }
 thiserror = "1.0.40"
 polyfit-residuals = { version = "0.6.1", features = ["parallel_rayon"] }
