@@ -4,6 +4,7 @@
 use std::{cmp, mem::MaybeUninit};
 
 use crate::{
+    max,
     prelude::*,
     stack::Stack,
     {dof, min},
@@ -104,7 +105,13 @@ where
         minimizer.minimize(move |mut minh| {
             // "for all partitions of data[0..=right_boundary] into data[0..l], data[l..=right_boundary]"
             for l in 0..=right_boundary {
-                let p_r_min = cmp::max(k_dof_plus.saturating_sub(l + 1), 1);
+                let p_r_min = max!(
+                    1,
+                    // k_dof_plus.saturating_sub(l + 1), // this is implied by a later condition
+                    // we have to have l > p_l so that there's enough datapoints in the segment to "spend" all the dofs
+                    // which is equivalent to this condition on p_r
+                    k_dof_plus.saturating_sub(l),
+                );
                 let p_r_max = min!(
                     right_boundary + 1 - l, // p_r can't be more larger than the number of data point in the segment
                     max_seg_dof, // it's also restricted by the maximal dof we allow on any segment
@@ -120,23 +127,20 @@ where
                     );
 
                     // `p_l - 1` to account for offset in bellman array indexing
-                    if let Some(energy) = self.energies[[p_l - 1, l]] {
-                        minh.add_to_min(MinimizationSolution {
-                            arg_min: if p_l == 0 {
-                                // dbg!("Look ma, no cuts!");
-                                CutPath::NoCuts
-                            } else {
-                                CutPath::SomeCuts {
-                                    // Saftey: we've previously checkecd that p_l is not zero
-                                    remaining_dofs: unsafe { DegreeOfFreedom::new_unchecked(p_l) },
-                                    elem_after_prev_cut: l + 1,
-                                }
-                            },
-                            min: energy + d,
-                        });
-                    } else {
-                        //dbg!("Hmm");
-                    }
+                    let energy = unsafe { self.energies[[p_l - 1, l]].unwrap_unchecked() };
+                    minh.add_to_min(MinimizationSolution {
+                        arg_min: if p_l == 0 {
+                            // Safety: if we were to enter this branch the previous p_l - 1 would've already underflowed
+                            unsafe { std::hint::unreachable_unchecked() } // CutPath::NoCuts
+                        } else {
+                            CutPath::SomeCuts {
+                                // Saftey: we've previously checkecd that p_l is not zero
+                                remaining_dofs: unsafe { DegreeOfFreedom::new_unchecked(p_l) },
+                                elem_after_prev_cut: l + 1,
+                            }
+                        },
+                        min: energy + d,
+                    });
                 }
                 // handle the case where we approximate the whole segment with a single model: so p_r = k+1, p_l = 0
                 if k_dof_plus
@@ -233,6 +237,7 @@ where
     /// * `training_error` - a function mapping a `segment_start_idx`, `segment_end_idx` (inclusive) and degree of
     ///     freedom `dof` to the error made by a `dof` degree of freedom model on
     ///     `timeseries_sample[segment_start_idx..=segment_end_idx]`.
+    #[inline]
     pub fn from_errors(
         timeseries_sample: &ValidTimeSeriesSample<T>,
         user_params: &MatchedUserParams,
@@ -292,6 +297,7 @@ where
     }
 
     /// How long the underlying timeseries is.
+    #[inline(always)]
     pub fn data_len(&self) -> usize {
         self.energies.data_len()
     }
@@ -302,6 +308,7 @@ where
     /// # Note
     /// Note that this will do some allocations internally;
     /// for hot call-sites prefer [OptimalJumpData::optimal_cuts_with_buf] instead.
+    #[inline]
     pub fn optimal_cuts(&self, n_dofs: DegreeOfFreedom) -> Option<OwnedDofPartition> {
         self.optimal_cuts_on_subinterval(n_dofs, self.data_len() - 1)
     }
@@ -317,6 +324,7 @@ where
     /// * `cut_buffer` output buffer for cut indices.
     /// * `dof_buffer` output buffer for dofs assigned to each segment of the partition generated
     ///     by the cuts.
+    #[inline]
     pub fn optimal_cuts_with_buf<
         'a,
         B1: AsRef<[MaybeUninit<usize>]> + AsMut<[MaybeUninit<usize>]>,
@@ -465,6 +473,7 @@ pub type OwnedDofPartition = DofPartition<
 pub type RefDofPartition<'a> = DofPartition<&'a [usize], &'a [DegreeOfFreedom]>;
 
 impl<'a> From<&'a OwnedDofPartition> for RefDofPartition<'a> {
+    #[inline]
     fn from(value: &'a OwnedDofPartition) -> Self {
         RefDofPartition {
             cut_indices: value.cut_indices.as_ref(),
@@ -483,6 +492,7 @@ pub struct Cut {
 
 /// Try converting a [CutPath] to a [Cut] given some initial number of degrees of freedom.
 /// Returns `None` if the cut path indicates that there are no cuts.
+#[inline]
 fn try_cut_path_to_cut(cut_path: CutPath, n_dofs: DegreeOfFreedom) -> Option<Cut> {
     // A cut index of 0 here means that there is a cut in front of the very first data
     // point - this means there really are no cuts.
