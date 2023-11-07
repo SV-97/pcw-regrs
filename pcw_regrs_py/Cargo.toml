@@ -1,6 +1,6 @@
 [package]
 name = "pcw_regrs_py"
-version = "1.8.1"
+version = "1.9.0"
 edition = "2021"
 publish = false       # prevent accidental publishing
 
@@ -10,15 +10,17 @@ name = "pcw_regrs_py"
 crate-type = ["cdylib"]
 
 [profile.release]
-# debug = 1
-# lto = true
-# codegen-units = 1
+lto = true              # enable full link time optimization
+codegen-units = 1       # build on one core to maximize possible optimizations
+debug = true            # write debug symbols into output binary
+opt-level = 3           # enable all optimizations
+overflow-checks = false # Disable integer overflow checks.
 
 [dependencies]
 pyo3 = { version = "0.20.0", features = ["extension-module"] }
 numpy = "0.20.0"
 ordered-float = { version = "4.1.1", features = ["std"] }
-pcw_regrs = { version = "1.8.0", path = "../pcw_regrs", features = [
+pcw_regrs = { version = "1.9.0", path = "../pcw_regrs", features = [
     "dofs-sub-one",
 ] }
 rayon = "1.6.1"
