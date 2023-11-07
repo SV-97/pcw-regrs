@@ -66,6 +66,7 @@ impl TryFrom<usize> for DegreeOfFreedom {
 }
 
 impl DegreeOfFreedom {
+    #[inline]
     pub const fn new(n: usize) -> Self {
         if n == 0 {
             panic!("Degrees of freedom can't be 0")
@@ -76,19 +77,23 @@ impl DegreeOfFreedom {
 
     /// # Safety
     /// The parameter [n] has to be nonzero
+    #[inline(always)]
     pub unsafe fn new_unchecked(n: usize) -> Self {
         DegreeOfFreedom(unsafe { NonZeroUsize::new_unchecked(n) })
     }
 
+    #[inline(always)]
     pub const fn one() -> Self {
         unsafe { DegreeOfFreedom(NonZeroUsize::new_unchecked(1)) }
     }
 
     /// Convert self to a polynomial degree
+    #[inline(always)]
     pub fn to_deg(self) -> usize {
         usize::from(self.0) - 1
     }
 
+    #[inline]
     pub fn checked_sub(self, rhs: Self) -> Option<Self> {
         usize::from(self)
             .checked_sub(rhs.into())
@@ -175,12 +180,18 @@ where
     T: Float,
 {
     pub fn try_new(times: &'a [T], response: &'a [T], weights: Option<&'a [T]>) -> Option<Self> {
-        if let Some(w) = weights && w.len() != response.len() {
+        if let Some(w) = weights
+            && w.len() != response.len()
+        {
             None
         } else if times.len() != response.len() {
             None
         } else {
-            Some(TimeSeriesSample { times, response, weights })
+            Some(TimeSeriesSample {
+                times,
+                response,
+                weights,
+            })
         }
     }
 
@@ -232,13 +243,17 @@ where
             Err(FitError::NanInTimes)
         } else if timeseries_sample.response.iter().any(|x| x.is_nan()) {
             Err(FitError::NanInResponses)
-        } else if let Some(weights) = timeseries_sample.weights && weights.iter().any(|x| x.is_nan()) {
+        } else if let Some(weights) = timeseries_sample.weights
+            && weights.iter().any(|x| x.is_nan())
+        {
             Err(FitError::NanInWeights)
         } else {
             Ok(ValidTimeSeriesSample {
                 times: unsafe { std::mem::transmute(timeseries_sample.times) },
                 response: unsafe { std::mem::transmute(timeseries_sample.response) },
-                weights: timeseries_sample.weights.map(|w| unsafe { std::mem::transmute(w) }),
+                weights: timeseries_sample
+                    .weights
+                    .map(|w| unsafe { std::mem::transmute(w) }),
             })
         }
     }
@@ -308,5 +323,16 @@ macro_rules! min {
     };
     ($x:expr, $($rest:expr),*$(,)?) => {
         std::cmp::min($x, $crate::min!($($rest),*))
+    };
+}
+
+/// Find maximum of given values
+#[macro_export]
+macro_rules! max {
+    ($x:expr) => {
+        $x
+    };
+    ($x:expr, $($rest:expr),*$(,)?) => {
+        std::cmp::max($x, $crate::max!($($rest),*))
     };
 }
