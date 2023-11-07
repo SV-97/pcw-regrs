@@ -244,6 +244,7 @@ where
         // set up array for bellman values / energies
         let mut energies = BellmanBuilder::new(user_params.max_total_dof, data_len, training_error);
 
+        // Note: ndarray's Array types use the "C memory order" (row major) by default which is crucial for our access pattern
         let mut prev_cuts = Array2::from_elem((max_total_dof - 1, data_len), None);
 
         #[rustfmt::skip]
