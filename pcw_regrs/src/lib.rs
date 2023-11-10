@@ -1,5 +1,5 @@
 #![feature(let_chains)]
-
+#![feature(unchecked_math)]
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -72,8 +72,12 @@ where
         }
     }
     let res = all_residuals_raw(ts, up);
+    #[inline(always)]
     move |segment_start_idx, segment_stop_idx, dof| {
-        res[segment_start_idx][[segment_stop_idx - segment_start_idx, usize::from(dof) - 1]]
+        // Safety: DegreeOfFreedom is guaranteed to be >= 1
+        res[segment_start_idx][[segment_stop_idx - segment_start_idx, unsafe {
+            usize::from(dof).unchecked_sub(1)
+        }]]
     }
 }
 
@@ -225,7 +229,7 @@ where
     pub fn model_for_penalty(&self, penalty: T) -> ScoredModel<T> {
         let Annotated { data: cv_score, .. } = self.down_cv_func.func_at(&penalty);
         let model = self.model_func.func_at(&penalty);
-        ScoredModel::new(model.clone(), cv_score.clone())
+        ScoredModel::new(model.clone(), *cv_score)
     }
 
     /// The cross validation function mapping hyperparameters γ to CV scores (and their
@@ -259,7 +263,7 @@ where
                         .iter()
                         .map(|Annotated { data: cv_score, .. }| cv_score),
                 )
-                .map(|(model, cv_score)| ScoredModel::new(model.clone(), cv_score.clone())),
+                .map(|(model, cv_score)| ScoredModel::new(model.clone(), *cv_score)),
         )
         .unwrap()
     }

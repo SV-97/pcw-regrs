@@ -91,7 +91,7 @@ where
     }
 
     /// Immutable core algorithm of `step`
-    #[inline]
+    #[inline(always)]
     fn step_core<M>(
         &self,
         right_boundary: usize,
@@ -119,10 +119,14 @@ where
                 );
                 // "for all valid (subject to the extra constraints) degrees on freedom on data[l..=right_boundary]"
                 for p_r in p_r_min..=p_r_max {
+                    // note that p_l can never be smaller than 1 because p_r is bounded above by k_dof_plus - 1 per definition
                     let p_l = k_dof_plus - p_r;
                     let d = (self.training_error)(
                         l + 1,
                         right_boundary + 1,
+                        // p_r is >= 1 because p_r_min >= 1 per definition
+                        // So we could use the unsafe new_unchecked here safely
+                        // however the compiler somehow prefers this version - and since it's safe as well, we'll just go with it
                         DegreeOfFreedom::try_from(p_r).unwrap(),
                     );
 
@@ -142,22 +146,22 @@ where
                         min: energy + d,
                     });
                 }
-                // handle the case where we approximate the whole segment with a single model: so p_r = k+1, p_l = 0
-                if k_dof_plus
-                    <= cmp::min(
-                        max_seg_dof, // it's also restricted by the maximal dof we allow on any segment
-                        right_boundary + 2,
-                    )
-                {
-                    minh.add_to_min(MinimizationSolution {
-                        arg_min: CutPath::NoCuts,
-                        min: (self.training_error)(
-                            0,
-                            right_boundary + 1,
-                            DegreeOfFreedom::try_from(k_dof_plus).unwrap(),
-                        ),
-                    });
-                }
+            }
+            // handle the case where we approximate the whole segment with a single model: so p_r = k+1, p_l = 0
+            if k_dof_plus
+                <= cmp::min(
+                    max_seg_dof, // it's also restricted by the maximal dof we allow on any segment
+                    right_boundary + 2,
+                )
+            {
+                minh.add_to_min(MinimizationSolution {
+                    arg_min: CutPath::NoCuts,
+                    min: (self.training_error)(
+                        0,
+                        right_boundary + 1,
+                        DegreeOfFreedom::try_from(k_dof_plus).unwrap(),
+                    ),
+                });
             }
         })
     }
@@ -165,7 +169,7 @@ where
     /// Solves the minimization problem in the forward step of the bellman equation.
     /// The returned `MinimizationSolution` consists of the optimal energy together with a cut path,
     /// where the cut path is isomorphic to the argmin in the bellman equation
-    #[inline]
+    #[inline(always)]
     pub fn step<M>(
         &mut self,
         right_boundary: usize,
@@ -181,7 +185,7 @@ where
         res
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn store_energy(&mut self, k_dof_plus_one: usize, right_boundary: usize, min_energy: T) {
         self.energies[[k_dof_plus_one - 1, right_boundary + 1]] = Some(min_energy);
         // self.energies[[usize::from(dofs), right_boundary + 1]] = Some(value);
@@ -533,8 +537,11 @@ mod minimizers {
     pub use immediate_minimizer::*;
     #[cfg(feature = "dep:rtrb")]
     pub use parallel_minimizer::*;
+    #[allow(unused)]
     pub use post_parallel_minimizer::*;
+    #[allow(unused)]
     pub use stack_minimizer::*;
+    #[allow(unused)]
     pub use vec_minimizer::*;
 
     mod stack_minimizer {
@@ -552,6 +559,7 @@ mod minimizers {
             T: Copy,
             F: Fn(&T, &T) -> Ordering,
         {
+            #[inline]
             pub fn new(stack_size: usize, cmp: F) -> Self {
                 Self {
                     stack: Stack::with_capacity(stack_size),
@@ -565,6 +573,7 @@ mod minimizers {
             T: Copy,
             F: Fn(&T, &T) -> Ordering,
         {
+            #[inline(always)]
             fn add_to_min(&mut self, val: T) {
                 self.stack.push(val)
             }
@@ -576,6 +585,7 @@ mod minimizers {
             F: Fn(&T, &T) -> Ordering + 'static,
         {
             type Handle<'a> = &'a mut Self;
+            #[inline]
             fn minimize<'a>(&'a mut self, func: impl for<'b> FnOnce(Self::Handle<'b>)) -> T {
                 self.stack.clear(); // make sure the stack is empty
                 func(self);
@@ -598,6 +608,7 @@ mod minimizers {
             T: Copy,
             F: Fn(&T, &T) -> Ordering,
         {
+            #[inline]
             pub fn new(cmp: F) -> Self {
                 Self {
                     current_min: None,
@@ -611,6 +622,7 @@ mod minimizers {
             T: Copy,
             F: Fn(&T, &T) -> Ordering,
         {
+            #[inline(always)]
             fn add_to_min(&mut self, new_val: T) {
                 self.current_min = match self.current_min {
                     // Note that we prefer the new value since it's the left arg
@@ -626,6 +638,7 @@ mod minimizers {
             F: Fn(&T, &T) -> Ordering + 'static,
         {
             type Handle<'a> = &'a mut Self;
+            #[inline]
             fn minimize<'a>(&'a mut self, func: impl for<'b> FnOnce(Self::Handle<'b>)) -> T {
                 func(self);
                 self.current_min.take().unwrap()
@@ -647,6 +660,7 @@ mod minimizers {
             T: Copy,
             F: Fn(&T, &T) -> Ordering,
         {
+            #[inline]
             pub fn new(cmp: F) -> Self {
                 Self {
                     stack: Vec::new(),
@@ -654,6 +668,7 @@ mod minimizers {
                 }
             }
 
+            #[inline]
             pub fn with_capacity(capacity: usize, cmp: F) -> Self {
                 Self {
                     stack: Vec::with_capacity(capacity),
@@ -667,6 +682,7 @@ mod minimizers {
             T: Copy,
             F: Fn(&T, &T) -> Ordering,
         {
+            #[inline(always)]
             fn add_to_min(&mut self, val: T) {
                 self.stack.push(val)
             }
@@ -678,6 +694,7 @@ mod minimizers {
             F: Fn(&T, &T) -> Ordering + 'static,
         {
             type Handle<'a> = &'a mut Self;
+            #[inline]
             fn minimize<'a>(&'a mut self, func: impl for<'b> FnOnce(Self::Handle<'b>)) -> T {
                 self.stack.clear(); // make sure the stack is empty
                 func(self);

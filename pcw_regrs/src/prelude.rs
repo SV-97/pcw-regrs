@@ -60,6 +60,7 @@ impl From<DegreeOfFreedom> for NonZeroUsize {
 
 impl TryFrom<usize> for DegreeOfFreedom {
     type Error = <NonZeroUsize as TryFrom<usize>>::Error;
+    #[inline(always)]
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         NonZeroUsize::try_from(value).map(DegreeOfFreedom)
     }
