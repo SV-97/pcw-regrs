@@ -2,11 +2,8 @@
 name = "pcw_regrs_py"
 version = "1.9.0"
 edition = "2021"
-publish = true # prevent accidental publishing
-authors = [
-    "Stefan Volz <volzstefan97+pcw_regrs@googlemail.com>",
-    "Martin Storath",
-]
+publish = true        # prevent accidental publishing
+
 description = "Fast, optimal, extensible and cross-validated heterogeneous piecewise polynomial regression for timeseries."
 repository = "https://github.com/SV-97/pcw-regrs"
 license = "MIT OR Apache-2.0"
