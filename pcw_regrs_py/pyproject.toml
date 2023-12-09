@@ -10,3 +10,8 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
+keywords = ["piecewise", "regression", "math", "science", "algorithm"]
+
+[project.urls]
+"Homepage" = "https://github.com/SV-97/pcw-regrs"
+"Bug Tracker" = "https://github.com/SV-97/pcw-regrs/issues"
