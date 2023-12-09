@@ -115,7 +115,7 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    if: "startsWith(github.ref, 'refs/tags/')"
+    # if: "startsWith(github.ref, 'refs/tags/')"
     needs: [linux, windows, macos, sdist]
     steps:
       - uses: actions/download-artifact@v3
@@ -128,5 +128,4 @@ jobs:
         with:
           command: upload
           args: --skip-existing *
-          working-directory: ./pcw_regrs_py
           rust-toolchain: nightly
