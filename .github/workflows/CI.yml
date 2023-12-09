@@ -39,6 +39,7 @@ jobs:
           sccache: 'true'
           manylinux: auto
           working-directory: ./pcw_regrs_py
+          rust-toolchain: nightly
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
@@ -63,6 +64,7 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: 'true'
           working-directory: ./pcw_regrs_py
+          rust-toolchain: nightly
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
@@ -86,6 +88,7 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: 'true'
           working-directory: ./pcw_regrs_py
+          rust-toolchain: nightly
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
@@ -102,6 +105,7 @@ jobs:
           command: sdist
           args: --out dist
           working-directory: ./pcw_regrs_py
+          rust-toolchain: nightly
       - name: Upload sdist
         uses: actions/upload-artifact@v3
         with:
@@ -125,4 +129,4 @@ jobs:
           command: upload
           args: --skip-existing *
           working-directory: ./pcw_regrs_py
-          
+          rust-toolchain: nightly
