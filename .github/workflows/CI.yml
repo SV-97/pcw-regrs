@@ -2,7 +2,9 @@
 # To update, run
 #
 #    maturin generate-ci -m pcw_regrs_py/Cargo.toml github
-#
+# 
+# Note that I manually set input of the actions to the appropriate subdirectory!
+# 
 name: CI
 
 on:
@@ -36,6 +38,7 @@ jobs:
           args: --release --out dist --find-interpreter --manifest-path pcw_regrs_py/Cargo.toml
           sccache: 'true'
           manylinux: auto
+          working-directory: ./pcw_regrs_py
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
@@ -59,6 +62,7 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter --manifest-path pcw_regrs_py/Cargo.toml
           sccache: 'true'
+          working-directory: ./pcw_regrs_py
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
@@ -81,6 +85,7 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter --manifest-path pcw_regrs_py/Cargo.toml
           sccache: 'true'
+          working-directory: ./pcw_regrs_py
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
@@ -96,6 +101,7 @@ jobs:
         with:
           command: sdist
           args: --out dist --manifest-path pcw_regrs_py/Cargo.toml
+          working-directory: ./pcw_regrs_py
       - name: Upload sdist
         uses: actions/upload-artifact@v3
         with:
@@ -118,3 +124,4 @@ jobs:
         with:
           command: upload
           args: --skip-existing *
+          working-directory: ./pcw_regrs_py
