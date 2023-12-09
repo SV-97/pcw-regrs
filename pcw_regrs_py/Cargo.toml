@@ -2,9 +2,24 @@
 name = "pcw_regrs_py"
 version = "1.9.0"
 edition = "2021"
-publish = false       # prevent accidental publishing
-
+publish = true # prevent accidental publishing
+authors = [
+    "Stefan Volz <volzstefan97+pcw_regrs@googlemail.com>",
+    "Martin Storath",
+]
+description = "Fast, optimal, extensible and cross-validated heterogeneous piecewise polynomial regression for timeseries."
+repository = "https://github.com/SV-97/pcw-regrs"
+license = "MIT OR Apache-2.0"
+keywords = ["regression", "piecewise", "polynomial"]
+categories = [
+    "mathematics",
+    "algorithms",
+    "science",
+    "simulation",
+    "science::neuroscience",
+]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 [lib]
 name = "pcw_regrs_py"
 crate-type = ["cdylib"]
