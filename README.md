@@ -3,9 +3,25 @@ Fast, optimal, extensible and cross-validated heterogeneous piecewise polynomial
 
 The algorithm is implemented in Rust in the `pcw_regrs` subdirectory. A Python API can be found in `pcw_regrs_py` and installed via `maturin`.
 
+# Real world example
+
+Here we've fitted a piecwise polynomial model to the `construction` dataset of the [Turing Change Point Dataset](https://github.com/alan-turing-institute/TCPD) in a two-step procedure. The first fit determines local behaviour (our model in green):
+
+![A plot of the construction dataset together with our model. It can be seen that the data is piecewise quadratic and the fitted model matches the data quite well.](./img/second_fit_construction.svg)
+
+We calculated means based on the resulting piecewise polynomial model and used these to fit another model to capture global trends:
+
+![Another plot of the construction dataset. Now with the calculated means and the model based on those](./img/global_fit_construction.svg)
+
+The determined changepoints (dashed lines) can be seen to coincide reasonably to economically significant events (shaded regions).
+
+# How to use
+
+Please check out the [example notebook](example.ipynb) for a quick-start on how to use the Python-API.
+
 # General structure
 
-![A basic pipeline diagram for the algorithm. The input consists of a timeseries sample as well as the optional parameters. These are sent into a preprocessing stage for validation and to optionally calculate the training errors. Once that's finished we move on to the main algorithm which solves the main dynamic program, determines the CV and model functions and then determines the CV- or OSE-optimal piecewise functions. Finally a postprocessing stage is used to select cut representatives either by calculating segment middlepoints or running a continuity optimization](./arch.svg)
+![A basic pipeline diagram for the algorithm. The input consists of a timeseries sample as well as the optional parameters. These are sent into a preprocessing stage for validation and to optionally calculate the training errors. Once that's finished we move on to the main algorithm which solves the main dynamic program, determines the CV and model functions and then determines the CV- or OSE-optimal piecewise functions. Finally a postprocessing stage is used to select cut representatives either by calculating segment middlepoints or running a continuity optimization](./img/arch.svg)
 
 # Optional features
 
