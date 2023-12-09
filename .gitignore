@@ -179,3 +179,6 @@ cython_debug/
 #.idea/
 .DS_Store
 pcw_regrs_py/pcw_regrs_py/.pcw_regrs_py.cpython-310-darwin 2.so.icloud
+
+# cargo configs 
+*/.cargo/config.toml
