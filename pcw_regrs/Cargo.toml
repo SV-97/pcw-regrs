@@ -2,7 +2,7 @@
 name = "pcw_regrs"
 version = "1.9.0"
 edition = "2021"
-publish = false # prevent accidental publishing
+publish = true # prevent accidental publishing
 authors = [
     "Stefan Volz <volzstefan97+pcw_regrs@googlemail.com>",
     "Martin Storath",
