@@ -1,10 +1,11 @@
 [build-system]
-requires = ["maturin>=0.13,<0.14", "pycw_fn>=0.1.2", "numpy>=1.25"]
+requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
 name = "pcw_regrs_py"
 requires-python = ">=3.7"
+dependencies = ["pycw_fn>=0.1.2", "numpy>=1.25", "scipy>=1.10"]
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
@@ -15,3 +16,6 @@ keywords = ["piecewise", "regression", "math", "science", "algorithm"]
 [project.urls]
 "Homepage" = "https://github.com/SV-97/pcw-regrs"
 "Bug Tracker" = "https://github.com/SV-97/pcw-regrs/issues"
+
+[project.optional-dependencies]
+example = ["matplotlib", "plotly"]
