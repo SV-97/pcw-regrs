@@ -5,7 +5,7 @@
 # 
 # Note that I manually set the working directory of the jobs to the appropriate subdirectory!
 # 
-name: CI
+name: PyPI Release
 
 on:
   push:
