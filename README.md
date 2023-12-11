@@ -1,4 +1,8 @@
 # pcw-regrs
+
+[![pypi-release](https://github.com/SV-97/pcw-regrs/actions/workflows/pypi-release.yml/badge.svg)](https://pypi.org/project/pcw-regrs-py/)
+
+
 Fast, optimal, extensible and cross-validated heterogeneous piecewise polynomial regression for timeseries.
 
 The algorithm is implemented in Rust in the `pcw_regrs` subdirectory. A Python API can be found in `pcw_regrs_py` and installed via `maturin`.
