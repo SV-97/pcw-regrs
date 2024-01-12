@@ -7,6 +7,9 @@ Fast, optimal, extensible and cross-validated heterogeneous piecewise polynomial
 
 The algorithm is implemented in Rust in the `pcw_regrs` subdirectory. A Python API can be found in `pcw_regrs_py` and installed via `maturin`.
 
+> [!NOTE]
+> Please also see [the accompanying paper's preprint at arXiv](https://arxiv.org/abs/2312.16512).
+
 # Real world example
 
 Here we've fitted a piecwise polynomial model to the `construction` dataset of the [Turing Change Point Dataset](https://github.com/alan-turing-institute/TCPD) in a two-step procedure. The first fit determines local behaviour (our model in green):
