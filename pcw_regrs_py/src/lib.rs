@@ -80,10 +80,10 @@ impl Solution {
     }
 
     #[cfg(feature = "serde")]
-    pub fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<&'py PyBytes> {
+    pub fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         // Used in pickle/pickling
         let s = serde_json::to_string(&self).unwrap();
-        Ok(PyBytes::new(py, s.as_bytes()))
+        Ok(PyBytes::new_bound(py, s.as_bytes()))
     }
 
     #[cfg(feature = "serde")]
@@ -205,7 +205,7 @@ impl Solution {
 
 /// Optimal (w.r.t. a cross-validation scheme) piecewise polynomial interpolation
 #[pymodule]
-fn pcw_regrs_py(_py: Python, m: &PyModule) -> PyResult<()> {
+fn pcw_regrs_py(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fit_pcw_poly, m)?)?;
     m.add_class::<Solution>()?;
     m.add_class::<ScoredPolyModel>()?;

@@ -3,7 +3,7 @@ use super::{rs, Float, OFloat};
 use pcw_fn::PcwFn;
 
 use derive_new::new;
-use numpy::ndarray::Array1;
+use numpy::{ndarray::Array1, PyArrayMethods};
 use numpy::PyArray1;
 use pyo3::prelude::*;
 
@@ -122,9 +122,9 @@ impl Serialize for PcwConstFn {
     {
         let mut state = serializer.serialize_struct("PcwConstFn", 2)?;
         Python::with_gil(|py| {
-            let jump_points = unsafe { self.jump_points.as_ref(py).as_slice() }.unwrap();
+            let jump_points = unsafe { self.jump_points.bind(py).as_slice() }.unwrap();
             state.serialize_field("jump_points", jump_points)?;
-            let values = unsafe { self.values.as_ref(py).as_slice() }.unwrap();
+            let values = unsafe { self.values.bind(py).as_slice() }.unwrap();
             state.serialize_field("values", values)?;
             Ok(())
         })?;
@@ -172,8 +172,8 @@ impl<'de> de::Visitor<'de> for PcwConstVisitor {
         let jump_points = jump_points.ok_or_else(|| de::Error::missing_field("jump_points"))?;
         let values = values.ok_or_else(|| de::Error::missing_field("values"))?;
         Ok(PcwConstFn {
-            jump_points: Python::with_gil(|py| PyArray1::from_vec(py, jump_points).into()),
-            values: Python::with_gil(|py| PyArray1::from_vec(py, values).into()),
+            jump_points: Python::with_gil(|py| PyArray1::from_vec_bound(py, jump_points).into()),
+            values: Python::with_gil(|py| PyArray1::from_vec_bound(py, values).into()),
         })
     }
 }
@@ -197,10 +197,10 @@ impl PcwConstFn {
         let (jumps, funcs) = pcw_fn.into_jumps_and_funcs();
         PcwConstFn {
             jump_points: Python::with_gil(|py| {
-                PyArray1::from_vec(py, jumps.into_iter().map(Float::from).collect()).into()
+                PyArray1::from_vec_bound(py, jumps.into_iter().map(Float::from).collect()).into()
             }),
             values: Python::with_gil(|py| {
-                PyArray1::from_vec(py, funcs.into_iter().map(Float::from).collect()).into()
+                PyArray1::from_vec_bound(py, funcs.into_iter().map(Float::from).collect()).into()
             }),
         }
     }
@@ -216,8 +216,8 @@ impl PcwConstFn {
     ) -> PyResult<Self> {
         match (jump_points, values) {
             (None, None) => Ok(Self {
-                jump_points: Python::with_gil(|py| unsafe { PyArray1::new(py, 0, false) }.into()),
-                values: Python::with_gil(|py| unsafe { PyArray1::new(py, 0, false) }.into()),
+                jump_points: Python::with_gil(|py| unsafe { PyArray1::new_bound(py, 0, false) }.into()),
+                values: Python::with_gil(|py| unsafe { PyArray1::new_bound(py, 0, false) }.into()),
             }),
             (Some(jump_points), Some(values)) => Ok(Self {
                 jump_points,
@@ -246,10 +246,10 @@ impl ModelFunc {
         let (jumps, funcs) = pcw_fn.into_jumps_and_funcs();
         ModelFunc {
             jump_points: Python::with_gil(|py| {
-                PyArray1::from_vec(py, jumps.into_iter().map(Float::from).collect()).into()
+                PyArray1::from_vec_bound(py, jumps.into_iter().map(Float::from).collect()).into()
             }),
             values: Python::with_gil(|py| {
-                PyArray1::from_owned_object_array(
+                PyArray1::from_owned_object_array_bound(
                     py,
                     Array1::from_vec(
                         funcs
