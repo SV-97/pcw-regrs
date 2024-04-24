@@ -4,7 +4,6 @@
 //! We use this to very efficiently add items onto a stack in such a way that they
 //! can later be accessed in reverse order as contiguous slices of memory.
 use std::{
-    convert::{AsMut, AsRef},
     iter::FusedIterator,
     marker::PhantomData,
     mem::MaybeUninit,
