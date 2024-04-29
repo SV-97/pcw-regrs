@@ -85,8 +85,8 @@ impl ScoredPolyModel {
             self.model_params
                 .iter()
                 .fold("[".to_string(), |cur, elem| match cur.as_str() {
-                    "[" => cur + &format!("{}", elem.__repr__()),
-                    _ => cur + &format!(", {}", elem.__repr__()),
+                    "[" => cur + &elem.__repr__().to_string(),
+                    _ => cur + &elem.__repr__().to_string(),
                 })
                 + "]",
         )

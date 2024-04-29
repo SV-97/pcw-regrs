@@ -118,7 +118,7 @@ impl Solution {
 }
 
 impl Solution {
-    fn sol<'a>(&'a self) -> Option<rs::Solution<OFloat>> {
+    fn sol(&self) -> Option<rs::Solution<OFloat>> {
         self.sol.clone()
     }
 }
