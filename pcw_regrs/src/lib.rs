@@ -75,7 +75,7 @@ where
     #[inline(always)]
     move |segment_start_idx, segment_stop_idx, dof| {
         // Safety: DegreeOfFreedom is guaranteed to be >= 1
-        res[segment_start_idx][[segment_stop_idx - segment_start_idx, unsafe {
+        res[segment_start_idx][[segment_stop_idx - segment_start_idx, unsafe { // TODO: possible optimization: either pad each array on the left or try out different subtractions here
             usize::from(dof).unchecked_sub(1)
         }]]
     }
@@ -100,6 +100,32 @@ where
     let res = all_residuals(&ts, &matched_params);
     Solution::try_new(&ts, &matched_params, res)
 }
+
+/// Fit a piecewise polynomial to the timeseries sample using the provided residuals.
+///
+/// The full model should locally spend no more than `max_seg_dof` degrees of freedom
+/// and globally no more than `max_total_dof` for the full model.
+///
+/// # Args
+/// * residuals: A call residuals(i,j,k) should return the residual of a k degree of freedom model on on data[i..=j].
+///     Please be sure to match this to your timeseries and user params - we don't do any checks here.
+///     You should also strongly consider marking your function `#[inline]` for performance reasons: this function
+///     is *very* hot.
+pub fn try_fit_pcw_poly_from_residuals<T>(
+    timeseries_sample: &TimeSeriesSample<T::Base>,
+    user_params: &UserParams,
+    residuals: impl Fn(usize, usize, DegreeOfFreedom) -> T,
+) -> Result<Solution<T>, FitError>
+where
+    T: OrdFloat,
+{
+    // Check the input timeseries for any potential problems
+    let ts = ValidTimeSeriesSample::try_from(timeseries_sample)?;
+    // Resolve optional parameters
+    let matched_params = user_params.match_to_timeseries(&ts);
+    Solution::try_new(&ts, &matched_params, residuals)
+}
+
 
 /// A model for a timeseries and its CV score.
 #[derive(new, Debug, Eq, PartialEq, Clone)]
