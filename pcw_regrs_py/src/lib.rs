@@ -1,3 +1,4 @@
+#![feature(unchecked_math)]
 //! Python API for the `pcw_regrs` Rust crate. Please see the corresponding
 //! documentation for more detailed information on the Rust internals.
 
@@ -9,9 +10,9 @@ use pcw_regrs as rs;
 
 use pcw_fn::{Functor, FunctorRef};
 
-use numpy::PyReadonlyArray1;
+use numpy::{ndarray::Array3, PyReadonlyArray1, PyReadonlyArray3};
 use ordered_float::OrderedFloat;
-use pyo3::{exceptions::PyRuntimeError, prelude::*, types::PyBytes};
+use pyo3::{exceptions::{PyRuntimeError, PyValueError}, prelude::*, types::PyBytes};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -51,6 +52,56 @@ pub fn fit_pcw_poly(
     )
     .map(Solution::from_rs)
     .unwrap()
+}
+
+#[pyfunction]
+// #[args(max_total_dof = "None", max_seg_dof = "None", weights = "None")]
+pub fn fit_pcw_poly_from_residuals(
+    sample_times: PyReadonlyArray1<Float>,
+    response_values: PyReadonlyArray1<Float>,
+    residuals: PyReadonlyArray3<Float>,
+    max_total_dof: Option<usize>,
+    max_seg_dof: Option<usize>,
+    weights: Option<PyReadonlyArray1<Float>>,
+) -> PyResult<Solution> {
+    let residuals_ordered: Vec<_> = residuals
+        .as_array()
+        .as_slice()
+        .ok_or_else(|| PyValueError::new_err("Residuals aren't contiguous in memory or in wrong memory order. Please ensure they're a monolithic array with standard (C) memory order"))?
+        .iter()
+        .map(|x| OrderedFloat(*x))
+        .collect();
+    // .map(|f| OrderedFloat(f)).ok_or_else(|| PyValueError::new_err("Encountered invalid value (maybe NaN) in residuals"))?;
+    let shape: [_; 3] = *residuals.as_array().shape().first_chunk().unwrap();
+    let residuals_arr = Array3::from_shape_vec(shape, residuals_ordered).map_err(|e | {
+        PyRuntimeError::new_err(format!("Something went wrong internally: {e}"))
+    })?;
+
+    rs::try_fit_pcw_poly_from_residuals(
+        &rs::TimeSeriesSample::try_new(
+            sample_times.as_slice().unwrap(),
+            response_values.as_slice().unwrap(),
+            weights.as_ref().map(|w| w.as_slice().unwrap()),
+        )
+        .unwrap(),
+        &rs::UserParams {
+            max_total_dof: max_total_dof.map(|u| {
+                NonZeroUsize::new(u)
+                    .expect("Invalid argument: total degrees of freedom have to be nonzero")
+            }),
+            max_seg_dof: max_seg_dof.map(|u| {
+                NonZeroUsize::new(u)
+                    .expect("Invalid argument: segment degrees of freedom have to be nonzero")
+            }),
+        },
+        #[inline(always)]
+        move |segment_start_idx, segment_stop_idx, dof| {
+            // Safety: DegreeOfFreedom is guaranteed to be >= 1
+            residuals_arr[[segment_start_idx, segment_stop_idx, unsafe { usize::from(dof).unchecked_sub(1) }]]
+        }
+    )
+    .map(Solution::from_rs)
+    .map_err(|e| PyRuntimeError::new_err(format!("Something went wrong internally: {e}")))
 }
 
 #[pyclass]
