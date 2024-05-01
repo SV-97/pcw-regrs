@@ -394,9 +394,25 @@ class PcwPolynomial(PcwFn):
             weights,
         )
         model = solution.ose_best()
-        # TODO: actually use model function to fit returned model. Currently normal L2 model is
-        # returned even though the fit is for the custom model.
-        return Self.from_data_and_model(timeseries, model, jump_locator, weights)
+
+        # TODO: add weights here; maybe replace degree with dof
+        funcs = [
+            model_function(
+                timeseries[seg_model.start_idx : seg_model.stop_idx + 1],
+                seg_model.degrees_of_freedom - 1,
+            )
+            for seg_model in model.model_params
+        ]
+        # TODO: refactor into function that applies jumplocators
+        match jump_locator:
+            case JumpLocator.CONTINUITY_OPTIMIZED:
+                jumps = continuity_opt_jumps(
+                    funcs, model.cut_idxs, timeseries.sample_times
+                )
+            case JumpLocator.MIDPOINT:
+                ts = timeseries.sample_times
+                jumps = np.mean(np.vstack((ts[:-1], ts[1:])).T, axis=1)
+        return Self(funcs, jumps, model.cut_idxs)
 
     def __str__(self):
         body = (r") \\" "\n    ").join(
