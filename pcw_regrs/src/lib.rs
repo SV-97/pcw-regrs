@@ -522,3 +522,26 @@ mod tests {
         }
     }
 }
+
+fn dump_array<T>(arr: &Vec<Array2<T>>) -> Vec<Array2<f64>> {
+    use regex::Regex;
+    use std::str::FromStr;
+    let d = maybe_debug::cast_debug(arr).unwrap();
+    let raw = format!("{d:?}");
+    let floats_re = Regex::new(r"-?\d+\.\d+(?:[eE][-+]?\d+)?").unwrap();
+    let mut arrays = Vec::new();
+    for block in raw.split("const ndim=2") {
+        let mut arr = Vec::new();
+        for row in block.split("]") {
+            let floats_strings: Vec<&str> = floats_re.find_iter(row).map(|m| m.as_str()).collect();
+            if !floats_strings.is_empty() {
+                let floats: Vec<f64> = floats_strings.iter().filter_map(|&s| f64::from_str(s).ok()).collect();
+                arr.push(floats);
+            }
+        }
+        if !arr.is_empty() {
+            arrays.push(Array2::from_shape_vec((arr.len(), arr[0].len()), arr.into_iter().flatten().collect()).unwrap());
+        }
+    }
+    arrays
+}
