@@ -325,6 +325,7 @@ class PcwPolynomial(PcwFn):
         residuals = np.nan * np.ones((timeseries.len(), timeseries.len(), msd + 1))
         starts = range(timeseries.len())
         with mp.Pool(num_procs) as pool:
+            # TODO: _residual_for_segment should be user modifiable
             subseg_residuals = pool.starmap(
                 _residuals_for_segment,
                 zip(
@@ -345,6 +346,8 @@ class PcwPolynomial(PcwFn):
             weights,
         )
         model = solution.ose_best()
+        # TODO: actually use model function to fit returned model. Currently normal L2 model is
+        # returned even though the fit is for the custom model.
         return Self.from_data_and_model(timeseries, model, jump_locator, weights)
 
     def __str__(self):
