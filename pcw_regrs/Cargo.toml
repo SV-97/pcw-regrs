@@ -41,6 +41,7 @@ rayon = { version = "1.7.0", optional = true }
 maybe-debug = "0.1.0"
 rtrb = { version = "0.2.3", optional = true }
 indoc = "2.0.3"
+regex = "1.10.4"
 
 [dev-dependencies]
 maybe-debug = "0.1.0"
