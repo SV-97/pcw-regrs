@@ -8,6 +8,8 @@ import numpy as np
 import numpy.typing as npt
 from numbers import Integral, Real
 from bisect import bisect
+import multiprocessing as mp
+import itertools as itt
 import pycw_fn
 
 
@@ -50,6 +52,11 @@ class TimeSeriesSample(NamedTuple):
 
     def __len__(self):
         return len(self.values)
+
+    len = __len__
+
+    def __getitem__(self, key: slice):
+        return TimeSeriesSample(self.sample_times[key], self.values[key])
 
 
 class JumpLocator(Enum):
@@ -129,10 +136,11 @@ class Solution():
             sample, weights
         )
 
-    def n_best(self,
-               jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
-               n_best: Integral = 1,
-               ) -> "PcwPolynomial":
+    def n_best(
+            self,
+            jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
+            n_best: Integral = 1,
+            ) -> "PcwPolynomial":
         """Get the n models with the n lowest CV scores."""
         models = self._sol.n_cv_minimizers(n_best)
         return [PcwPolynomial.from_data_and_model(self.sample, model, jump_locator, self.weights) for model in models]
@@ -289,6 +297,56 @@ class PcwPolynomial(PcwFn):
         ).model_for_penalty(penalty)
         return Self.from_data_and_model(timeseries, model, jump_locator, weights)
 
+    @classmethod
+    def from_errors(
+        Self,
+        timeseries: TimeSeriesSample,
+        local_errors: Callable[[npt.NDArray[np.float64], int], float],
+        model_function: Callable[[npt.NDArray[np.float64], int], np.polynomial.Polynomial],
+        jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
+        max_segment_degree: Optional[Integral] = 10,
+        max_total_dof: Optional[Integral] = None,
+        weights: npt.NDArray[np.float64] = None,
+        num_procs: Optional[int] = None,
+    ) -> "PcwPolynomial":
+        """
+        # Args
+            * local_errors - maps segment of timeseries and degree (not dof. So minimal value is 0
+                rather than 1) to local residual
+            * model_function - similar to `local_errors` but should return the actually fitted
+                polynomial rather than the residual
+            * num_procs - number of processes used to compute all the necessary residuals in parallel
+                defaults to the value returned by `os.cpu_count()` when set to `None`
+        """
+        if weights is not None:
+            raise NotImplementedError("Weights currently aren't supported for custom errors")
+        # residuals_arr[[segment_start_idx, segment_stop_idx, unsafe { usize::from(dof).unchecked_sub(1) }]] 
+        msd = max_segment_degree if max_segment_degree is not None else timeseries.len()
+        residuals = np.nan * np.ones((timeseries.len(), timeseries.len(), msd + 1))
+        starts = range(timeseries.len())
+        with mp.Pool(num_procs) as pool:
+            subseg_residuals = pool.starmap(
+                _residuals_for_segment,
+                zip(
+                    map(lambda start: timeseries[start:], starts),
+                    itt.repeat(msd),
+                    itt.repeat(local_errors)
+                )
+            )
+            for i, res in enumerate(subseg_residuals):
+                residuals[i, i:] = res
+        #  assert np.isclose(residuals[3,9,2], local_errors(timeseries[3:9], 2))
+        solution = _rs.fit_pcw_poly_from_residuals(
+            timeseries.sample_times,
+            timeseries.values,
+            residuals,
+            max_total_dof,
+            max_segment_degree + 1 if max_segment_degree is not None else None,
+            weights,
+        )
+        model = solution.ose_best()
+        return Self.from_data_and_model(timeseries, model, jump_locator, weights)
+
     def __str__(self):
         body = (r") \\" "\n    ").join(f"{str(poly)} & x \\in [{poly.domain[0]}, {poly.domain[1]}"
                                        for poly in self.funcs
@@ -300,6 +358,16 @@ class PcwPolynomial(PcwFn):
                                        for poly in self.funcs
                                        )
         return r"\begin{cases}" f"\n{body}]\n" r"\end{cases}"
+
+
+def _residuals_for_segment(timeseries_segment, max_segment_degree, local_errors) -> npt.NDArray[np.float64]:
+    residuals = np.zeros((len(timeseries_segment), max_segment_degree+1))
+    for stop_idx in range(1,len(timeseries_segment)+1):
+        subseg = timeseries_segment[:stop_idx]
+        # -1 since we want actual degrees rather than dofs; +1 since we want an inclusive range
+        for deg in range(min(len(subseg) - 1, max_segment_degree) + 1):
+            residuals[stop_idx-1, deg] = local_errors(subseg, deg)
+    return residuals
 
 
 if __name__ == "__main__":
