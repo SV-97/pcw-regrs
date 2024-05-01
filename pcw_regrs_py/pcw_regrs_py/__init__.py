@@ -13,7 +13,9 @@ import itertools as itt
 import pycw_fn
 
 
-def continuity_opt_jumps(polys: List[np.polynomial.Polynomial], jump_idxs, sample_times) -> np.ndarray:
+def continuity_opt_jumps(
+    polys: List[np.polynomial.Polynomial], jump_idxs, sample_times
+) -> np.ndarray:
     """Calculate the optimal jump positions to make the resulting model 'as continuous as possible'."""
     boundaries = np.vstack((sample_times[:-1], sample_times[1:])).T
     jumps = []
@@ -23,27 +25,40 @@ def continuity_opt_jumps(polys: List[np.polynomial.Polynomial], jump_idxs, sampl
             jumps.append(np.mean(interval))
         else:
             # compute root of `|left_poly(x) - right_poly(x)|²` over the `interval` containing the jump
-            p = (left_poly - right_poly)**2
-            jumps.append(opt.minimize_scalar(
-                p, bounds=interval, method="bounded").x)
+            p = (left_poly - right_poly) ** 2
+            jumps.append(opt.minimize_scalar(p, bounds=interval, method="bounded").x)
     return jumps
 
 
-def model_params_to_poly(ts: np.ndarray, ys: np.ndarray, model_params: _rs.PolyModelSpec, weights: Optional[np.ndarray] = None) -> np.polynomial.Polynomial:
+def model_params_to_poly(
+    ts: np.ndarray,
+    ys: np.ndarray,
+    model_params: _rs.PolyModelSpec,
+    weights: Optional[np.ndarray] = None,
+) -> np.polynomial.Polynomial:
     """Turn the basic model parameters for a segment of data into a numpy polynomial."""
     deg = model_params.degrees_of_freedom - 1
-    seg_weights = None if weights is None else weights[
-        model_params.start_idx: model_params.stop_idx + 1]
+    seg_weights = (
+        None
+        if weights is None
+        else weights[model_params.start_idx : model_params.stop_idx + 1]
+    )
     if deg == 0:
         # np.mean(ys[model_params.start_idx: model_params.stop_idx + 1])
         weighted_mean = np.ma.average(
-            ys[model_params.start_idx: model_params.stop_idx + 1], weights=seg_weights)
-        return np.polynomial.Polynomial((weighted_mean, ), window=np.array([-1., 1.]), domain=np.array([-1., 1.]))
+            ys[model_params.start_idx : model_params.stop_idx + 1], weights=seg_weights
+        )
+        return np.polynomial.Polynomial(
+            (weighted_mean,), window=np.array([-1.0, 1.0]), domain=np.array([-1.0, 1.0])
+        )
     else:
         return np.polynomial.Polynomial.fit(
-            ts[model_params.start_idx: model_params.stop_idx + 1],
-            ys[model_params.start_idx: model_params.stop_idx + 1],
-            deg=deg, domain=np.array([-1., 1.]), w=seg_weights)
+            ts[model_params.start_idx : model_params.stop_idx + 1],
+            ys[model_params.start_idx : model_params.stop_idx + 1],
+            deg=deg,
+            domain=np.array([-1.0, 1.0]),
+            w=seg_weights,
+        )
 
 
 class TimeSeriesSample(NamedTuple):
@@ -65,8 +80,9 @@ class JumpLocator(Enum):
 
 
 @dataclass(frozen=True)
-class PcwFn():
+class PcwFn:
     """A piecewise function"""
+
     funcs: Iterable[Callable]
     jumps: Iterable[Real]  # must be sorted ascendingly
 
@@ -85,7 +101,8 @@ class PcwConstFn(pycw_fn.PcwFn):
     values: np.ndarray
     jump_points: np.ndarray
 
-    def __init__(self, values, jump_points): pass
+    def __init__(self, values, jump_points):
+        pass
 
     @staticmethod
     def _constant_func(x: float) -> np.polynomial.Polynomial:
@@ -99,7 +116,8 @@ class PcwConstFn(pycw_fn.PcwFn):
 
     def __new__(Self, values, jump_points):
         native = pycw_fn.PcwFn.from_funcs_and_jumps(
-            [PcwConstFn._constant_func(y) for y in values], jump_points)._native
+            [PcwConstFn._constant_func(y) for y in values], jump_points
+        )._native
         self = super().__new__(Self)
         super().__init__(self, native)
         self.values = values
@@ -107,7 +125,7 @@ class PcwConstFn(pycw_fn.PcwFn):
         return self
 
 
-class Solution():
+class Solution:
     _sol: _rs.Solution
     sample: TimeSeriesSample
     weights: Optional[np.ndarray]
@@ -119,11 +137,12 @@ class Solution():
 
     @classmethod
     def fit(
-            Self,
-            sample: TimeSeriesSample,
-            max_total_dof: Optional[Integral] = None,
-            max_segment_degree: Optional[Integral] = 15,
-            weights=None,) -> "Solution":
+        Self,
+        sample: TimeSeriesSample,
+        max_total_dof: Optional[Integral] = None,
+        max_segment_degree: Optional[Integral] = 15,
+        weights=None,
+    ) -> "Solution":
         """Construct a solution to piecewise regression problem on the given data"""
         return Self(
             _rs.fit_pcw_poly(
@@ -133,22 +152,33 @@ class Solution():
                 max_segment_degree + 1 if max_segment_degree is not None else None,
                 weights,
             ),
-            sample, weights
+            sample,
+            weights,
         )
 
     def n_best(
-            self,
-            jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
-            n_best: Integral = 1,
-            ) -> "PcwPolynomial":
+        self,
+        jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
+        n_best: Integral = 1,
+    ) -> "PcwPolynomial":
         """Get the n models with the n lowest CV scores."""
         models = self._sol.n_cv_minimizers(n_best)
-        return [PcwPolynomial.from_data_and_model(self.sample, model, jump_locator, self.weights) for model in models]
+        return [
+            PcwPolynomial.from_data_and_model(
+                self.sample, model, jump_locator, self.weights
+            )
+            for model in models
+        ]
 
-    def ose(self, jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,) -> "PcwPolynomial":
+    def ose(
+        self,
+        jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
+    ) -> "PcwPolynomial":
         """Get the best model with respect to the one standard error rule."""
         model = self._sol.ose_best()
-        return PcwPolynomial.from_data_and_model(self.sample, model, jump_locator, self.weights)
+        return PcwPolynomial.from_data_and_model(
+            self.sample, model, jump_locator, self.weights
+        )
 
     def xse(
         self,
@@ -157,7 +187,9 @@ class Solution():
     ) -> "PcwPolynomial":
         """Get the best model with respect to the se_factor standard error rule."""
         model = self._sol.xse_best(xse_factor)
-        return PcwPolynomial.from_data_and_model(self.sample, model, jump_locator, self.weights)
+        return PcwPolynomial.from_data_and_model(
+            self.sample, model, jump_locator, self.weights
+        )
 
     def with_penalty(
         self,
@@ -166,7 +198,9 @@ class Solution():
     ) -> "PcwPolynomial":
         """Get the best model with the given penalty (gamma)."""
         model = self._sol.model_for_penalty(penalty)
-        return PcwPolynomial.from_data_and_model(self.sample, model, jump_locator, self.weights)
+        return PcwPolynomial.from_data_and_model(
+            self.sample, model, jump_locator, self.weights
+        )
 
     @property
     def cv_func(self) -> PcwConstFn:
@@ -187,8 +221,10 @@ class Solution():
     def model_func(self) -> PcwConstFn:
         mf = self._sol.model_func()
         return PcwConstFn(
-            values=[PcwPolynomial.from_data_and_model(
-                self.sample, m, weights=self.weights) for m in mf.values],
+            values=[
+                PcwPolynomial.from_data_and_model(self.sample, m, weights=self.weights)
+                for m in mf.values
+            ],
             jump_points=mf.jump_points,
         )
 
@@ -207,12 +243,17 @@ class PcwPolynomial(PcwFn):
         jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
         weights: npt.NDArray[np.float64] = None,
     ) -> "PcwPolynomial":
-        funcs = [model_params_to_poly(
-            timeseries.sample_times, timeseries.values, seg_model, weights) for seg_model in model.model_params]
+        funcs = [
+            model_params_to_poly(
+                timeseries.sample_times, timeseries.values, seg_model, weights
+            )
+            for seg_model in model.model_params
+        ]
         match jump_locator:
             case JumpLocator.CONTINUITY_OPTIMIZED:
                 jumps = continuity_opt_jumps(
-                    funcs, model.cut_idxs, timeseries.sample_times)
+                    funcs, model.cut_idxs, timeseries.sample_times
+                )
             case JumpLocator.MIDPOINT:
                 ts = timeseries.sample_times
                 jumps = np.mean(np.vstack((ts[:-1], ts[1:])).T, axis=1)
@@ -236,7 +277,10 @@ class PcwPolynomial(PcwFn):
             max_segment_degree + 1 if max_segment_degree is not None else None,
             weights,
         ).n_cv_minimizers(n_best)
-        return [Self.from_data_and_model(timeseries, model, jump_locator, weights) for model in models]
+        return [
+            Self.from_data_and_model(timeseries, model, jump_locator, weights)
+            for model in models
+        ]
 
     @classmethod
     def fit_ose(
@@ -302,7 +346,9 @@ class PcwPolynomial(PcwFn):
         Self,
         timeseries: TimeSeriesSample,
         local_errors: Callable[[npt.NDArray[np.float64], int], float],
-        model_function: Callable[[npt.NDArray[np.float64], int], np.polynomial.Polynomial],
+        model_function: Callable[
+            [npt.NDArray[np.float64], int], np.polynomial.Polynomial
+        ],
         jump_locator=JumpLocator.CONTINUITY_OPTIMIZED,
         max_segment_degree: Optional[Integral] = 10,
         max_total_dof: Optional[Integral] = None,
@@ -319,8 +365,10 @@ class PcwPolynomial(PcwFn):
                 defaults to the value returned by `os.cpu_count()` when set to `None`
         """
         if weights is not None:
-            raise NotImplementedError("Weights currently aren't supported for custom errors")
-        # residuals_arr[[segment_start_idx, segment_stop_idx, unsafe { usize::from(dof).unchecked_sub(1) }]] 
+            raise NotImplementedError(
+                "Weights currently aren't supported for custom errors"
+            )
+        # residuals_arr[[segment_start_idx, segment_stop_idx, unsafe { usize::from(dof).unchecked_sub(1) }]]
         msd = max_segment_degree if max_segment_degree is not None else timeseries.len()
         residuals = np.nan * np.ones((timeseries.len(), timeseries.len(), msd + 1))
         starts = range(timeseries.len())
@@ -331,8 +379,8 @@ class PcwPolynomial(PcwFn):
                 zip(
                     map(lambda start: timeseries[start:], starts),
                     itt.repeat(msd),
-                    itt.repeat(local_errors)
-                )
+                    itt.repeat(local_errors),
+                ),
             )
             for i, res in enumerate(subseg_residuals):
                 residuals[i, i:] = res
@@ -351,38 +399,50 @@ class PcwPolynomial(PcwFn):
         return Self.from_data_and_model(timeseries, model, jump_locator, weights)
 
     def __str__(self):
-        body = (r") \\" "\n    ").join(f"{str(poly)} & x \\in [{poly.domain[0]}, {poly.domain[1]}"
-                                       for poly in self.funcs
-                                       )
+        body = (r") \\" "\n    ").join(
+            f"{str(poly)} & x \\in [{poly.domain[0]}, {poly.domain[1]}"
+            for poly in self.funcs
+        )
         return r"\begin{cases}" f"\n{body}]\n" r"\end{cases}"
 
     def __format__(self, format_spec):
-        body = (r") \\" "\n    ").join(f"{poly:{format_spec}} & x \\in [{poly.domain[0]}, {poly.domain[1]}"
-                                       for poly in self.funcs
-                                       )
+        body = (r") \\" "\n    ").join(
+            f"{poly:{format_spec}} & x \\in [{poly.domain[0]}, {poly.domain[1]}"
+            for poly in self.funcs
+        )
         return r"\begin{cases}" f"\n{body}]\n" r"\end{cases}"
 
 
-def _residuals_for_segment(timeseries_segment, max_segment_degree, local_errors) -> npt.NDArray[np.float64]:
-    residuals = np.zeros((len(timeseries_segment), max_segment_degree+1))
-    for stop_idx in range(1,len(timeseries_segment)+1):
+def _residuals_for_segment(
+    timeseries_segment, max_segment_degree, local_errors
+) -> npt.NDArray[np.float64]:
+    residuals = np.zeros((len(timeseries_segment), max_segment_degree + 1))
+    for stop_idx in range(1, len(timeseries_segment) + 1):
         subseg = timeseries_segment[:stop_idx]
         # -1 since we want actual degrees rather than dofs; +1 since we want an inclusive range
         for deg in range(min(len(subseg) - 1, max_segment_degree) + 1):
-            residuals[stop_idx-1, deg] = local_errors(subseg, deg)
+            residuals[stop_idx - 1, deg] = local_errors(subseg, deg)
     return residuals
 
 
 if __name__ == "__main__":
     # a simple example
     import numpy as np
+
     times = np.linspace(0, 10)
-    values = np.hstack([5*times[:10]**2, times[10:30] - 10, (-times[30:] **
-                       4 + times[30:]**3 + 10)/np.amax(-times[30:]**4 + times[30:]**3 + 10)])
+    values = np.hstack(
+        [
+            5 * times[:10] ** 2,
+            times[10:30] - 10,
+            (-(times[30:] ** 4) + times[30:] ** 3 + 10)
+            / np.amax(-(times[30:] ** 4) + times[30:] ** 3 + 10),
+        ]
+    )
     p1 = PcwPolynomial.fit_ose(TimeSeriesSample(times, values))
     p2 = PcwPolynomial.fit_n_best(TimeSeriesSample(times, values))[0]
 
     import matplotlib.pyplot as plt
+
     ts = np.linspace(0, 10, 3000)
     plt.scatter(times, values)
     plt.scatter(ts, p2(ts), label="Best", marker=".", alpha=0.3)
