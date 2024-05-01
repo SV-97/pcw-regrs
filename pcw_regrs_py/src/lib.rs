@@ -258,6 +258,7 @@ impl Solution {
 #[pymodule]
 fn pcw_regrs_py(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fit_pcw_poly, m)?)?;
+    m.add_function(wrap_pyfunction!(fit_pcw_poly_from_residuals, m)?)?;
     m.add_class::<Solution>()?;
     m.add_class::<ScoredPolyModel>()?;
     m.add_class::<PolyModelSpec>()?;
