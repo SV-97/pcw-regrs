@@ -3,8 +3,8 @@ use super::{rs, Float, OFloat};
 use pcw_fn::PcwFn;
 
 use derive_new::new;
-use numpy::{ndarray::Array1, PyArrayMethods};
 use numpy::PyArray1;
+use numpy::{ndarray::Array1, PyArrayMethods};
 use pyo3::prelude::*;
 
 #[cfg(feature = "serde")]
@@ -85,7 +85,7 @@ impl ScoredPolyModel {
             self.model_params
                 .iter()
                 .fold("[".to_string(), |cur, elem| match cur.as_str() {
-                    "[" => cur + &format!("{}", elem.__repr__()),
+                    "[" => cur + &elem.__repr__().to_string(),
                     _ => cur + &format!(", {}", elem.__repr__()),
                 })
                 + "]",
@@ -216,7 +216,9 @@ impl PcwConstFn {
     ) -> PyResult<Self> {
         match (jump_points, values) {
             (None, None) => Ok(Self {
-                jump_points: Python::with_gil(|py| unsafe { PyArray1::new_bound(py, 0, false) }.into()),
+                jump_points: Python::with_gil(|py| {
+                    unsafe { PyArray1::new_bound(py, 0, false) }.into()
+                }),
                 values: Python::with_gil(|py| unsafe { PyArray1::new_bound(py, 0, false) }.into()),
             }),
             (Some(jump_points), Some(values)) => Ok(Self {
