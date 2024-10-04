@@ -250,8 +250,12 @@ where
             Err(FitError::NanInWeights)
         } else {
             Ok(ValidTimeSeriesSample {
-                times: unsafe { std::mem::transmute(timeseries_sample.times) },
-                response: unsafe { std::mem::transmute(timeseries_sample.response) },
+                times: unsafe {
+                    std::mem::transmute::<&'a [T::Base], &'a [T]>(timeseries_sample.times)
+                },
+                response: unsafe {
+                    std::mem::transmute::<&'a [T::Base], &'a [T]>(timeseries_sample.response)
+                },
                 weights: timeseries_sample
                     .weights
                     .map(|w| unsafe { std::mem::transmute(w) }),
@@ -260,7 +264,7 @@ where
     }
 }
 
-impl<'a, T> ValidTimeSeriesSample<'a, T>
+impl<T> ValidTimeSeriesSample<'_, T>
 where
     T: OrdFloat,
 {

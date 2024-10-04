@@ -13,6 +13,7 @@ use crate::{
 use ndarray::{s, Array2};
 
 /// A single "cut" of the partition given by some reference data telling us which cut should come before it.
+///
 /// See also the [try_cut_path_to_cut] function to see how this this type relates to an actual cut.
 /// Note that this essentially represents a linked list through some indirection given by the DP solution.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -456,6 +457,7 @@ where
 // TODO: rewrite using PcwFn by making PcwFn generic over the internal storage (maybe by using GATs and a trait?)
 // We've already implemented an abstract interface in the [pcw_fn](https://crates.io/crates/pcw_fn) crate.
 /// A "degree of freedom partition": an integer partition related to an ordered partition of the timeseries.
+///
 /// In the notation of the associated thesis this is a sequence (ν_I)_{I ∈ P} for P ∈ OPart(Timeseries).
 #[derive(Debug, PartialEq, Eq)]
 pub struct DofPartition<T, S>
@@ -568,7 +570,7 @@ mod minimizers {
             }
         }
 
-        impl<'a, T, F> MinHandle<T> for &'a mut StackMinimizer<T, F>
+        impl<T, F> MinHandle<T> for &'_ mut StackMinimizer<T, F>
         where
             T: Copy,
             F: Fn(&T, &T) -> Ordering,
@@ -617,7 +619,7 @@ mod minimizers {
             }
         }
 
-        impl<'a, T, F> MinHandle<T> for &'a mut ImmediateMinimizer<T, F>
+        impl<T, F> MinHandle<T> for &'_ mut ImmediateMinimizer<T, F>
         where
             T: Copy,
             F: Fn(&T, &T) -> Ordering,
@@ -677,7 +679,7 @@ mod minimizers {
             }
         }
 
-        impl<'a, T, F> MinHandle<T> for &'a mut VecMinimizer<T, F>
+        impl<T, F> MinHandle<T> for &'_ mut VecMinimizer<T, F>
         where
             T: Copy,
             F: Fn(&T, &T) -> Ordering,
@@ -861,7 +863,7 @@ mod minimizers {
             minimizer: &'a mut PostParallelMinimizer<T, F>,
         }
 
-        impl<'a, T, F> MinHandle<T> for PostParMinHandle<'a, T, F>
+        impl<T, F> MinHandle<T> for PostParMinHandle<'_, T, F>
         where
             T: Send + 'static,
         {

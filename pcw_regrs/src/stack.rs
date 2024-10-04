@@ -3,11 +3,7 @@
 //!
 //! We use this to very efficiently add items onto a stack in such a way that they
 //! can later be accessed in reverse order as contiguous slices of memory.
-use std::{
-    iter::FusedIterator,
-    marker::PhantomData,
-    mem::MaybeUninit,
-};
+use std::{iter::FusedIterator, marker::PhantomData, mem::MaybeUninit};
 
 /// A stack allocated on the heap.
 pub type HeapStack<T> = Stack<T, Box<[MaybeUninit<T>]>>;
@@ -250,7 +246,7 @@ where
     stack: &'a mut Stack<T, B>,
 }
 
-impl<'a, T, B> Iterator for StackIter<'a, T, B>
+impl<T, B> Iterator for StackIter<'_, T, B>
 where
     B: AsRef<[MaybeUninit<T>]> + AsMut<[MaybeUninit<T>]>,
     T: Copy,
@@ -261,7 +257,7 @@ where
     }
 }
 
-impl<'a, T, B> ExactSizeIterator for StackIter<'a, T, B>
+impl<T, B> ExactSizeIterator for StackIter<'_, T, B>
 where
     B: AsRef<[MaybeUninit<T>]> + AsMut<[MaybeUninit<T>]>,
     T: Copy,
@@ -271,7 +267,7 @@ where
     }
 }
 
-impl<'a, T, B> FusedIterator for StackIter<'a, T, B>
+impl<T, B> FusedIterator for StackIter<'_, T, B>
 where
     B: AsRef<[MaybeUninit<T>]> + AsMut<[MaybeUninit<T>]>,
     T: Copy,
