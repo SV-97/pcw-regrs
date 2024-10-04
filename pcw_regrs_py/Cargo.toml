@@ -1,6 +1,6 @@
 [package]
 name = "pcw_regrs_py"
-version = "1.10.0"
+version = "1.10.1"
 edition = "2021"
 publish = true        # prevent accidental publishing
 
@@ -48,5 +48,5 @@ approx = "0.5.1"
 [features]
 show_times = []
 serde = ["pyo3/serde", "ordered-float/serde", "pcw_regrs/serde", "pcw_fn/serde"]
-default = ["serde"]
+default = ["serde", "pcw_regrs/parallel_rayon"]
 parallel_rayon = ["pcw_regrs/parallel_rayon"]
