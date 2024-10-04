@@ -535,7 +535,7 @@ mod minimizers {
     }
 
     pub use immediate_minimizer::*;
-    #[cfg(feature = "dep:rtrb")]
+    #[cfg(feature = "rtrb")]
     pub use parallel_minimizer::*;
     #[allow(unused)]
     pub use post_parallel_minimizer::*;
@@ -704,7 +704,7 @@ mod minimizers {
         }
     }
 
-    #[cfg(feature = "dep:rtrb")]
+    #[cfg(feature = "rtrb")]
     mod parallel_minimizer {
         use super::{MinHandle, Minimizer};
         use rtrb;
