@@ -38,7 +38,7 @@ pcw_regrs = { version = "1.9.0", path = "../pcw_regrs", features = [
 rayon = "1.6.1"
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.91"
-derive-new = "0.6.0"
+derive-new = "0.7.0"
 # num-traits = "0.2.15"
 pcw_fn = "0.2.1"
 
