@@ -1,5 +1,4 @@
 #![feature(let_chains)]
-#![feature(unchecked_math)]
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
