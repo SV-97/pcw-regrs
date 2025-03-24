@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pcw_regrs_py"
-requires-python = ">=3.7"
+requires-python = ">=3.9"
 dependencies = ["pycw_fn>=0.1.2", "numpy>=1.25", "scipy>=1.10"]
 classifiers = [
     "Programming Language :: Rust",
