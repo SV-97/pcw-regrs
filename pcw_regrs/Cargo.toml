@@ -29,7 +29,7 @@ opt-level = 3     # enable all optimizations
 
 [dependencies]
 derive-new = "0.7.0"
-ndarray = { version = "0.15.6", features = ["serde"] }
+ndarray = { version = "0.16.1", features = ["serde"] }
 ordered-float = { version = "4.1.1", features = ["serde"] }
 pcw_fn = { version = "0.2.1", features = ["serde"] }
 thiserror = "1.0.40"
@@ -58,7 +58,7 @@ parallel_rayon = ["dep:rayon", "polyfit-residuals/parallel_rayon"]
 # rather than the n dofs we usually allow. This behaviour corresponds to the preconditions of
 # the uniqueness proof and makes intuitive sense when considering the locality of each point:
 # by not going up to full interpolation any point necessarily influences the full model whereas
-# interpolation would allow it to influence only a single segment. 
+# interpolation would allow it to influence only a single segment.
 dofs-sub-one = []
 
 [[bench]]
