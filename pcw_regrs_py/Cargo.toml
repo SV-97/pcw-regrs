@@ -1,6 +1,6 @@
 [package]
 name = "pcw_regrs_py"
-version = "1.10.1"
+version = "1.10.2"
 edition = "2021"
 publish = true        # prevent accidental publishing
 

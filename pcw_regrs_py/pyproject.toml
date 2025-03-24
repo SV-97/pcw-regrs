@@ -12,6 +12,7 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 keywords = ["piecewise", "regression", "math", "science", "algorithm"]
+version = "1.10.2"
 
 [project.urls]
 "Homepage" = "https://github.com/SV-97/pcw-regrs"
