@@ -106,7 +106,7 @@ impl ScoredPolyModel {
 }
 
 #[pyclass]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PcwConstFn {
     #[pyo3(get)]
     pub jump_points: Py<PyArray1<Float>>,
@@ -172,8 +172,8 @@ impl<'de> de::Visitor<'de> for PcwConstVisitor {
         let jump_points = jump_points.ok_or_else(|| de::Error::missing_field("jump_points"))?;
         let values = values.ok_or_else(|| de::Error::missing_field("values"))?;
         Ok(PcwConstFn {
-            jump_points: Python::with_gil(|py| PyArray1::from_vec_bound(py, jump_points).into()),
-            values: Python::with_gil(|py| PyArray1::from_vec_bound(py, values).into()),
+            jump_points: Python::with_gil(|py| PyArray1::from_vec(py, jump_points).into()),
+            values: Python::with_gil(|py| PyArray1::from_vec(py, values).into()),
         })
     }
 }
@@ -197,10 +197,10 @@ impl PcwConstFn {
         let (jumps, funcs) = pcw_fn.into_jumps_and_funcs();
         PcwConstFn {
             jump_points: Python::with_gil(|py| {
-                PyArray1::from_vec_bound(py, jumps.into_iter().map(Float::from).collect()).into()
+                PyArray1::from_vec(py, jumps.into_iter().map(Float::from).collect()).into()
             }),
             values: Python::with_gil(|py| {
-                PyArray1::from_vec_bound(py, funcs.into_iter().map(Float::from).collect()).into()
+                PyArray1::from_vec(py, funcs.into_iter().map(Float::from).collect()).into()
             }),
         }
     }
@@ -216,10 +216,8 @@ impl PcwConstFn {
     ) -> PyResult<Self> {
         match (jump_points, values) {
             (None, None) => Ok(Self {
-                jump_points: Python::with_gil(|py| {
-                    unsafe { PyArray1::new_bound(py, 0, false) }.into()
-                }),
-                values: Python::with_gil(|py| unsafe { PyArray1::new_bound(py, 0, false) }.into()),
+                jump_points: Python::with_gil(|py| unsafe { PyArray1::new(py, 0, false) }.into()),
+                values: Python::with_gil(|py| unsafe { PyArray1::new(py, 0, false) }.into()),
             }),
             (Some(jump_points), Some(values)) => Ok(Self {
                 jump_points,
@@ -233,7 +231,7 @@ impl PcwConstFn {
 }
 
 #[pyclass]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ModelFunc {
     #[pyo3(get)]
     /// the penalty parameters where one model changes into another one
@@ -248,10 +246,10 @@ impl ModelFunc {
         let (jumps, funcs) = pcw_fn.into_jumps_and_funcs();
         ModelFunc {
             jump_points: Python::with_gil(|py| {
-                PyArray1::from_vec_bound(py, jumps.into_iter().map(Float::from).collect()).into()
+                PyArray1::from_vec(py, jumps.into_iter().map(Float::from).collect()).into()
             }),
             values: Python::with_gil(|py| {
-                PyArray1::from_owned_object_array_bound(
+                PyArray1::from_owned_object_array(
                     py,
                     Array1::from_vec(
                         funcs

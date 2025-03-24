@@ -83,15 +83,15 @@ impl Solution {
     pub fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         // Used in pickle/pickling
         let s = serde_json::to_string(&self).unwrap();
-        Ok(PyBytes::new_bound(py, s.as_bytes()))
+        Ok(PyBytes::new(py, s.as_bytes()))
     }
 
     #[cfg(feature = "serde")]
     pub fn __setstate__(&mut self, py: Python, state: PyObject) -> PyResult<()> {
         // Used in pickle/pickling
-        match state.extract::<&PyBytes>(py) {
+        match state.extract::<&[u8]>(py) {
             Ok(s) => {
-                *self = serde_json::from_slice(s.as_bytes()).unwrap();
+                *self = serde_json::from_slice(s).unwrap();
 
                 Ok(())
             }
