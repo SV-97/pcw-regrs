@@ -4,7 +4,8 @@
 #    maturin generate-ci github --output ../.github/workflows/pypi-release.yml -mCargo.toml
 # 
 # Note that I manually set the working directory of the jobs to the appropriate subdirectory!
-# 
+# Further I set the rust toolchain to nightly.
+
 name: PyPI Release
 
 on:
@@ -56,7 +57,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.platform.target }}
-          path: dist
+          path: ./pcw_regrs_py/dist
 
   musllinux:
     runs-on: ${{ matrix.platform.runner }}
