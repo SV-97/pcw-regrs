@@ -123,7 +123,7 @@ where
 
     /// Iterate over values on the stack in an owned way by popping
     #[inline]
-    pub fn pop_iter(&mut self) -> StackIter<T, B> {
+    pub fn pop_iter(&mut self) -> StackIter<'_, T, B> {
         StackIter { stack: self }
     }
 
