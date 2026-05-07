@@ -140,11 +140,7 @@ where
             cv_func
                 .clone()
                 .resample_to::<VecPcwFn<_, _>, _>(model_func.clone(), |a, b| {
-                    if a.data <= b.data {
-                        a
-                    } else {
-                        b
-                    }
+                    if a.data <= b.data { a } else { b }
                 });
         Ok(Self {
             model_func,
