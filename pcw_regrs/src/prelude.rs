@@ -1,6 +1,6 @@
 use super::annotate::Annotated;
 use indoc::indoc;
-use num_traits::{real::Real, Float, FromPrimitive};
+use num_traits::{Float, FromPrimitive, real::Real};
 use ordered_float::OrderedFloat;
 use pcw_fn::VecPcwFn;
 use std::{num::NonZeroUsize, ops::Index};

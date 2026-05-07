@@ -1,10 +1,10 @@
 use std::{num::NonZeroUsize, time::Duration};
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use ndarray::{concatenate, Array, Axis};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use ndarray::{Array, Axis, concatenate};
 use ndarray_rand::RandomExt;
 use ordered_float::OrderedFloat;
-use pcw_regrs::{try_fit_pcw_poly, TimeSeriesSample, UserParams};
+use pcw_regrs::{TimeSeriesSample, UserParams, try_fit_pcw_poly};
 use rand_distr::Normal;
 
 pub fn bench_try_fit_pcw_poly(c: &mut Criterion) {
