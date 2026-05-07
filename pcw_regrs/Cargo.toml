@@ -1,7 +1,7 @@
 [package]
 name = "pcw_regrs"
 version = "1.9.1"
-edition = "2021"
+edition = "2024"
 publish = true # prevent accidental publishing
 authors = [
     "Stefan Volz <volzstefan97+pcw_regrs@googlemail.com>",
