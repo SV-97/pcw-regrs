@@ -53,7 +53,7 @@ pub fn fit_pcw_poly(
     .unwrap()
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Solution {
@@ -87,7 +87,7 @@ impl Solution {
     }
 
     #[cfg(feature = "serde")]
-    pub fn __setstate__(&mut self, py: Python, state: PyObject) -> PyResult<()> {
+    pub fn __setstate__(&mut self, py: Python, state: Py<PyAny>) -> PyResult<()> {
         // Used in pickle/pickling
         match state.extract::<&[u8]>(py) {
             Ok(s) => {
@@ -95,7 +95,7 @@ impl Solution {
 
                 Ok(())
             }
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         }
     }
 

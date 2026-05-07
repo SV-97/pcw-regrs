@@ -2,10 +2,10 @@ use derive_new::new;
 use ndarray::ArrayView1;
 use pcw_fn::{PcwFn, VecPcwFn};
 use polyfit_residuals::{
-    poly::OwnedNewtonPolynomial, try_fit_poly_with_residual, weighted, PolyFit,
+    PolyFit, poly::OwnedNewtonPolynomial, try_fit_poly_with_residual, weighted,
 };
 
-use crate::{euclid_sq_metric, DegreeOfFreedom, OrdFloat, SegmentModelSpec, ValidTimeSeriesSample};
+use crate::{DegreeOfFreedom, OrdFloat, SegmentModelSpec, ValidTimeSeriesSample, euclid_sq_metric};
 
 /// Models a timeseries via a polynomial function.
 #[derive(new, Debug, Eq, PartialEq, Clone)]

@@ -1,8 +1,8 @@
-use num_traits::real::Real;
 use num_traits::Zero;
+use num_traits::real::Real;
 use pcw_fn::{Functor, FunctorRef, PcwFn, VecPcwFn};
 
-use crate::affine_min::{pointwise_minimum_of_affines, AffineFunction};
+use crate::affine_min::{AffineFunction, pointwise_minimum_of_affines};
 use crate::annotate::Annotated;
 use crate::solve_dp::OptimalJumpData;
 use crate::stack::Stack;

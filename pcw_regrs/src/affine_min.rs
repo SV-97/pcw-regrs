@@ -89,7 +89,7 @@ pub fn sort_affines_for_minimization<T: Ord>(affines: &mut [AffineFunction<T>]) 
 ///
 /// # Args
 /// * `affines` - The collection of [AffineFunction]s to consider. Note that this **has** to be
-///     *strictly* sorted by by [AffineFunction::slope] in *descending* order.
+///   *strictly* sorted by by [AffineFunction::slope] in *descending* order.
 ///
 /// # Panics
 /// Panics if two lines are parallel or if the input is not properly sorted. Note
@@ -107,10 +107,12 @@ where
         1 => Some(Pcw::global(affines.next().unwrap())), // Minium of a set with one element is that element
         _ => {
             let mut minimals: Vec<S> = vec![affines.next().unwrap(), affines.next().unwrap()];
-            let mut jumps = vec![minimals[0]
-                .borrow()
-                .graph_intersection(minimals[1].borrow())
-                .unwrap()]; // expect("No valid intersection between lines: lines are parallel.")
+            let mut jumps = vec![
+                minimals[0]
+                    .borrow()
+                    .graph_intersection(minimals[1].borrow())
+                    .unwrap(),
+            ]; // expect("No valid intersection between lines: lines are parallel.")
             for right_fn in affines {
                 let mut left_fn: &S = minimals.last().unwrap();
                 while {

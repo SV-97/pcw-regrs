@@ -1,7 +1,7 @@
 [package]
 name = "pcw_regrs"
-version = "1.9.1"
-edition = "2021"
+version = "1.9.2"
+edition = "2024"
 publish = true # prevent accidental publishing
 authors = [
     "Stefan Volz <volzstefan97+pcw_regrs@googlemail.com>",
@@ -29,13 +29,13 @@ opt-level = 3     # enable all optimizations
 
 [dependencies]
 derive-new = "0.7.0"
-ndarray = { version = "0.16.1", features = ["serde"] }
-ordered-float = { version = "4.1.1", features = ["serde"] }
+ndarray = { version = "0.17.2", features = ["serde"] }
+ordered-float = { version = "5.3.0", features = ["serde"] }
 pcw_fn = { version = "0.2.1", features = ["serde"] }
-thiserror = "1.0.40"
+thiserror = "2.0.18"
 polyfit-residuals = { version = "0.6.1", features = ["parallel_rayon"] }
 num-traits = "0.2.15"
-itertools = "0.12.0"
+itertools = "0.14.0"
 serde = { version = "1.0.152", features = ["derive"], optional = true }
 rayon = { version = "1.7.0", optional = true }
 maybe-debug = "0.1.0"
@@ -44,10 +44,10 @@ indoc = "2.0.3"
 
 [dev-dependencies]
 maybe-debug = "0.1.0"
-criterion = "0.5.1"
-rand = "0.8.5"
-rand_distr = "0.4.3"
-ndarray-rand = "0.15.0"
+criterion = "0.8.2"
+rand = "0.10.1"
+rand_distr = "0.6.0"
+ndarray-rand = "0.16.0"
 
 [features]
 default = ["serde", "dofs-sub-one", "parallel_rayon"]

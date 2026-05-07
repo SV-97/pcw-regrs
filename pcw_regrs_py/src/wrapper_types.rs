@@ -1,16 +1,16 @@
-use super::{rs, Float, OFloat};
+use super::{Float, OFloat, rs};
 
 use pcw_fn::PcwFn;
 
 use derive_new::new;
 use numpy::PyArray1;
-use numpy::{ndarray::Array1, PyArrayMethods};
+use numpy::{PyArrayMethods, ndarray::Array1};
 use pyo3::prelude::*;
 
 #[cfg(feature = "serde")]
-use serde::{de, ser::SerializeStruct, Serialize};
+use serde::{Serialize, de, ser::SerializeStruct};
 
-#[pyclass]
+#[pyclass(from_py_object)]
 // #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct PolyModelSpec {
@@ -53,7 +53,7 @@ impl PolyModelSpec {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 // #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct ScoredPolyModel {
@@ -121,7 +121,7 @@ impl Serialize for PcwConstFn {
         S: serde::Serializer,
     {
         let mut state = serializer.serialize_struct("PcwConstFn", 2)?;
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let jump_points = unsafe { self.jump_points.bind(py).as_slice() }.unwrap();
             state.serialize_field("jump_points", jump_points)?;
             let values = unsafe { self.values.bind(py).as_slice() }.unwrap();
@@ -172,8 +172,8 @@ impl<'de> de::Visitor<'de> for PcwConstVisitor {
         let jump_points = jump_points.ok_or_else(|| de::Error::missing_field("jump_points"))?;
         let values = values.ok_or_else(|| de::Error::missing_field("values"))?;
         Ok(PcwConstFn {
-            jump_points: Python::with_gil(|py| PyArray1::from_vec(py, jump_points).into()),
-            values: Python::with_gil(|py| PyArray1::from_vec(py, values).into()),
+            jump_points: Python::attach(|py| PyArray1::from_vec(py, jump_points).into()),
+            values: Python::attach(|py| PyArray1::from_vec(py, values).into()),
         })
     }
 }
@@ -196,10 +196,10 @@ impl PcwConstFn {
     pub fn from_rs(pcw_fn: impl PcwFn<OFloat, OFloat>) -> Self {
         let (jumps, funcs) = pcw_fn.into_jumps_and_funcs();
         PcwConstFn {
-            jump_points: Python::with_gil(|py| {
+            jump_points: Python::attach(|py| {
                 PyArray1::from_vec(py, jumps.into_iter().map(Float::from).collect()).into()
             }),
-            values: Python::with_gil(|py| {
+            values: Python::attach(|py| {
                 PyArray1::from_vec(py, funcs.into_iter().map(Float::from).collect()).into()
             }),
         }
@@ -216,8 +216,8 @@ impl PcwConstFn {
     ) -> PyResult<Self> {
         match (jump_points, values) {
             (None, None) => Ok(Self {
-                jump_points: Python::with_gil(|py| unsafe { PyArray1::new(py, 0, false) }.into()),
-                values: Python::with_gil(|py| unsafe { PyArray1::new(py, 0, false) }.into()),
+                jump_points: Python::attach(|py| unsafe { PyArray1::new(py, 0, false) }.into()),
+                values: Python::attach(|py| unsafe { PyArray1::new(py, 0, false) }.into()),
             }),
             (Some(jump_points), Some(values)) => Ok(Self {
                 jump_points,
@@ -238,17 +238,17 @@ pub struct ModelFunc {
     pub jump_points: Py<PyArray1<Float>>,
     #[pyo3(get)]
     /// the models corresponding to the penalties. The objects are instances of [ScoredPolyModel]
-    pub values: Py<PyArray1<PyObject>>,
+    pub values: Py<PyArray1<Py<PyAny>>>,
 }
 
 impl ModelFunc {
     pub fn from_rs(pcw_fn: impl PcwFn<OFloat, rs::ScoredModel<OFloat>>) -> Self {
         let (jumps, funcs) = pcw_fn.into_jumps_and_funcs();
         ModelFunc {
-            jump_points: Python::with_gil(|py| {
+            jump_points: Python::attach(|py| {
                 PyArray1::from_vec(py, jumps.into_iter().map(Float::from).collect()).into()
             }),
-            values: Python::with_gil(|py| {
+            values: Python::attach(|py| {
                 PyArray1::from_owned_object_array(
                     py,
                     Array1::from_vec(
