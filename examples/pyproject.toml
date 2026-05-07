@@ -1,0 +1,16 @@
+[project]
+name = "examples"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "jupyter>=1.1.1",
+    "matplotlib>=3.10.9",
+    "numpy>=2.4.4",
+    "pcw-regrs-py",
+    "plotly>=6.7.0",
+]
+
+[tool.uv.sources]
+pcw-regrs-py = { path = "../pcw_regrs_py" }
