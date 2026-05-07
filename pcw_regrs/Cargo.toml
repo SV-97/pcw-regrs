@@ -29,7 +29,7 @@ opt-level = 3     # enable all optimizations
 
 [dependencies]
 derive-new = "0.7.0"
-ndarray = { version = "0.16.1", features = ["serde"] }
+ndarray = { version = "0.17.2", features = ["serde"] }
 ordered-float = { version = "4.1.1", features = ["serde"] }
 pcw_fn = { version = "0.2.1", features = ["serde"] }
 thiserror = "1.0.40"
